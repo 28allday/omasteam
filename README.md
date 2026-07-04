@@ -9,6 +9,11 @@ Gives you: **kitty** as the default terminal (JetBrainsMono, hidden tab bar, liv
 terminal environment (eza/bat/fzf/zoxide/neovim+LazyVim/starship), and a one-command
 **theme switcher** that re-themes the *whole* system from any Omarchy theme's git URL.
 
+> **Unofficial & unaffiliated.** This is an independent hobby project. It is **not**
+> affiliated with, endorsed by, or connected to Omarchy, Basecamp, or DHH — it just
+> brings an Omarchy-style look/workflow to SteamOS + KDE. Names and themes belong to
+> their respective owners. See [LICENSE](LICENSE).
+
 ## Quick start
 
 ```bash
