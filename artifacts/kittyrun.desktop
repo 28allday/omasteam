@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Service
+X-KDE-ServiceTypes=KonqPopupMenu/Plugin
+MimeType=application/x-executable;
+Actions=runInKitty;
+X-KDE-AuthorizeAction=shell_access
+
+[Desktop Action runInKitty]
+TryExec=/home/deck/.local/bin/kitty
+Exec=/home/deck/.local/bin/kitty --hold -e %f
+Icon=/home/deck/.local/kitty.app/share/icons/hicolor/256x256/apps/kitty.png
+Name=Run In kitty
+Comment=Run within kitty

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=btop (System Monitor)
+Exec=/home/deck/.local/bin/kitty -e btop
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Monitor;

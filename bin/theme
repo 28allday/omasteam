@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Friendly shortcut for omasteam-theme:
+#   theme <git-url>        install & apply a theme   (just: type `theme ` then paste)
+#   theme omarchy <name>   install an official Omarchy theme (e.g. tokyo-night, gruvbox)
+#   theme <name>           switch to an installed theme
+#   theme                  list installed themes
+#   theme wallpaper …      cycle/list backgrounds (passthrough)
+arg="${1:-}"
+case "$arg" in
+  "")                              omasteam-theme list ;;
+  *://*|*.git|git@*)               omasteam-theme install "$arg" ;;
+  install|omarchy|set|list|current|remove|wallpaper|wp) omasteam-theme "$@" ;;
+  *)                               omasteam-theme set "$arg" ;;
+esac

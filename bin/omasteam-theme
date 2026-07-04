@@ -1,0 +1,297 @@
+#!/usr/bin/env bash
+#
+# omasteam-theme — install & apply Omarchy themes on KDE Plasma (kitty + Polonium setup)
+#
+#   omasteam-theme install <git-url> [subdir]   clone a theme repo (or a subdir) and apply
+#   omasteam-theme omarchy <name>      install an official Omarchy theme (basecamp/omarchy),
+#                                        e.g. tokyo-night, gruvbox, nord, catppuccin, kanagawa
+#   omasteam-theme set <name>          apply an already-installed theme
+#   omasteam-theme wallpaper [list|next|prev|<n>]   pick among the theme's backgrounds
+#   omasteam-theme list                list installed themes (* = current)
+#   omasteam-theme current             print the current theme
+#   omasteam-theme remove <name>       delete an installed theme
+#
+# Themes drive off the theme repo's colors.toml palette, fanned out to the KDE-
+# relevant surfaces: kitty, a generated Plasma color scheme, btop, wallpaper, nvim.
+# Hyprland-only files (waybar/wofi/walker/mako/hyprland/…) are ignored.
+set -euo pipefail
+
+THEMES_DIR="$HOME/.config/omasteam/themes"
+CURRENT="$THEMES_DIR/.current"
+mkdir -p "$THEMES_DIR"
+
+c_ok(){   printf '   \033[1;32m✓\033[0m %s\n' "$*"; }
+c_info(){ printf '\033[1;36m::\033[0m %s\n' "$*"; }
+c_warn(){ printf '   \033[1;33m!\033[0m %s\n' "$*"; }
+c_err(){  printf '\033[1;31mxx\033[0m %s\n' "$*" >&2; }
+die(){ c_err "$*"; exit 1; }
+
+# ---- palette parsing ----------------------------------------------------------
+# val KEY  -> 6 hex digits (no #), from the theme's colors.toml
+COLORS=""
+val(){ grep -iE "^[[:space:]]*$1[[:space:]]*=" "$COLORS" 2>/dev/null | head -1 \
+       | grep -oiE '[0-9A-Fa-f]{6}' | head -1; }   # only ever emit a clean 6-hex value
+rgb(){ local h="${1:-}"; [ "${#h}" -eq 6 ] || h="000000"; printf '%d,%d,%d' "0x${h:0:2}" "0x${h:2:2}" "0x${h:4:2}"; }
+
+# ---- apply to each surface ----------------------------------------------------
+apply_kitty(){
+  local name="$1" dir="$2"
+  local bg fg cur sf sb ac dim c3 c2; bg=$(val background); fg=$(val foreground); cur=$(val cursor)
+  sf=$(val selection_foreground); sb=$(val selection_background)
+  ac=$(val accent); [ -n "$ac" ] || ac="$sb"; [ -n "$ac" ] || ac=$(val color4)
+  dim=$(val color0); c3=$(val color3); c2=$(val color2)
+  [ -n "$bg" ] || { c_warn "kitty: no colors.toml palette — skipped"; return; }
+  mkdir -p ~/.config/kitty/themes
+  {
+    echo "# omasteam-theme: $name (generated) — must be included LAST in kitty.conf"
+    echo "foreground #$fg"
+    echo "background #$bg"
+    [ -n "$cur" ] && echo "cursor #$cur"
+    [ -n "$sf" ] && echo "selection_foreground #$sf"
+    [ -n "$sb" ] && echo "selection_background #$sb"
+    local i h; for i in $(seq 0 15); do h=$(val "color$i"); [ -n "$h" ] && echo "color$i #$h"; done
+    # UI accents (override the base kitty.conf's hardcoded ones)
+    [ -n "$ac" ] && {
+      echo "active_tab_background   #$ac"
+      echo "active_tab_foreground   #$bg"
+      echo "active_border_color     #$ac"
+      echo "url_color               #$ac"
+      [ -z "$cur" ] && echo "cursor                  #$ac"
+      echo "mark1_background         #$ac"
+    }
+    [ -n "$dim" ] && { echo "inactive_tab_background #$dim"; echo "inactive_border_color   #$dim"; echo "inactive_tab_foreground #$fg"; }
+    [ -n "$c3" ] && echo "mark2_background         #$c3"
+    [ -n "$c2" ] && echo "mark3_background         #$c2"
+  } > ~/.config/kitty/themes/current.conf
+  grep -q "themes/current.conf" ~/.config/kitty/kitty.conf 2>/dev/null \
+    || printf '\n# omasteam-theme (managed) — must stay last so it wins\ninclude themes/current.conf\n' >> ~/.config/kitty/kitty.conf
+  # live reload every running kitty (SIGUSR1 = reload config)
+  pkill -USR1 -x kitty 2>/dev/null && c_ok "kitty themed + reloaded" || c_ok "kitty themed (restart/Ctrl+Shift+F5 to see)"
+}
+
+apply_kde(){
+  local name="$1"
+  local bg fg sb sf ac; bg=$(val background); fg=$(val foreground)
+  sb=$(val selection_background); sf=$(val selection_foreground); ac=$(val accent)
+  [ -n "$bg" ] || { c_warn "KDE: no palette — skipped"; return; }
+  [ -n "$ac" ] || ac="$sb"; [ -n "$ac" ] || ac=$(val color4); [ -n "$ac" ] || ac="$fg"
+  [ -n "$sf" ] || sf="$bg"
+  command -v plasma-apply-colorscheme >/dev/null || { c_warn "plasma-apply-colorscheme missing — skipped"; return; }
+  local scheme="Omasteam${name^}"
+  local dst=~/.local/share/color-schemes/$scheme.colors
+  mkdir -p ~/.local/share/color-schemes
+  local vbg; vbg=$(val color0); [ -n "$vbg" ] || vbg="$bg"
+  cat > "$dst" <<EOF
+[General]
+Name=$scheme
+ColorScheme=$scheme
+
+[Colors:Window]
+BackgroundNormal=$(rgb "$bg")
+ForegroundNormal=$(rgb "$fg")
+
+[Colors:View]
+BackgroundNormal=$(rgb "$bg")
+ForegroundNormal=$(rgb "$fg")
+DecorationFocus=$(rgb "$ac")
+DecorationHover=$(rgb "$ac")
+
+[Colors:Button]
+BackgroundNormal=$(rgb "$vbg")
+ForegroundNormal=$(rgb "$fg")
+
+[Colors:Selection]
+BackgroundNormal=$(rgb "$ac")
+ForegroundNormal=$(rgb "$sf")
+
+[Colors:Tooltip]
+BackgroundNormal=$(rgb "$bg")
+ForegroundNormal=$(rgb "$fg")
+
+[Colors:Complementary]
+BackgroundNormal=$(rgb "$bg")
+ForegroundNormal=$(rgb "$fg")
+
+[WM]
+activeBackground=$(rgb "$bg")
+activeForeground=$(rgb "$fg")
+activeBlend=$(rgb "$ac")
+inactiveBackground=$(rgb "$bg")
+inactiveForeground=$(rgb "$fg")
+EOF
+  plasma-apply-colorscheme "$scheme" >/dev/null 2>&1 && c_ok "KDE color scheme applied ($scheme)" \
+    || c_ok "KDE scheme written ($scheme) — pick it in System Settings if not live"
+  # Pin the Plasma accent to the theme accent (so highlights/checkboxes follow)
+  if command -v kwriteconfig6 >/dev/null; then
+    kwriteconfig6 --file kdeglobals --group General --key accentColorFromWallpaper false
+    kwriteconfig6 --file kdeglobals --group General --key AccentColor "$(rgb "$ac")"
+  fi
+}
+
+apply_starship(){
+  local ac; ac=$(val accent); [ -n "$ac" ] || ac=$(val selection_background); [ -n "$ac" ] || ac=$(val color4)
+  local fg; fg=$(val foreground)
+  [ -n "$ac" ] || { c_warn "starship: no accent — skipped"; return; }
+  # Themed prompt (omadots shape, accent-driven). Overwrites ~/.config/starship.toml.
+  cat > ~/.config/starship.toml <<EOF
+# omasteam-theme (generated) — prompt accent follows the active theme
+add_newline = true
+command_timeout = 200
+format = "[\$directory\$git_branch\$git_status](\$style)\$character"
+
+[character]
+error_symbol = "[✗](bold #$ac)"
+success_symbol = "[❯](bold #$ac)"
+
+[directory]
+truncation_length = 2
+truncation_symbol = "…/"
+style = "bold #$ac"
+repo_root_style = "bold #$ac"
+repo_root_format = "[\$repo_root](\$repo_root_style)[\$path](\$style)[\$read_only](\$read_only_style) "
+
+[git_branch]
+format = "[\$branch](\$style) "
+style = "italic #$ac"
+
+[git_status]
+format = '[\$all_status](\$style)'
+style = "#$ac"
+EOF
+  c_ok "starship prompt retinted (accent #$ac)"
+}
+
+apply_fzf(){
+  local fg bg ac c1 c2 c6; fg=$(val foreground); bg=$(val background); ac=$(val accent)
+  [ -n "$ac" ] || ac=$(val color4); c1=$(val color1); c2=$(val color2); c6=$(val color6)
+  local d0; d0=$(val color0)
+  [ -n "$fg" ] || { c_warn "fzf: no palette — skipped"; return; }
+  # Dropped into the omadots shell fns/ dir (sourced by shell/functions on every shell)
+  mkdir -p ~/.config/shell/fns
+  cat > ~/.config/shell/fns/fzf-theme.sh <<EOF
+# omasteam-theme (generated)
+export FZF_DEFAULT_OPTS="\${FZF_DEFAULT_OPTS:-} --color=fg:#$fg,bg:-1,hl:#$ac,fg+:#$fg,bg+:#${d0:-$bg},hl+:#$ac,info:#${c6:-$ac},prompt:#$ac,pointer:#${c1:-$ac},marker:#${c2:-$ac},spinner:#$ac,header:#$ac"
+EOF
+  c_ok "fzf colors themed (new shells)"
+}
+
+apply_gtk(){
+  local dir="$1"
+  [ -f "$dir/gtk.css" ] || return 0
+  local d; for d in gtk-3.0 gtk-4.0; do mkdir -p ~/.config/$d; cp -f "$dir/gtk.css" ~/.config/$d/gtk.css; done
+  c_ok "GTK apps themed (gtk.css)"
+}
+
+apply_btop(){
+  local name="$1" dir="$2"
+  [ -f "$dir/btop.theme" ] || { c_warn "btop: theme not in repo — skipped"; return; }
+  mkdir -p ~/.config/btop/themes
+  cp -f "$dir/btop.theme" ~/.config/btop/themes/"$name".theme
+  if [ -f ~/.config/btop/btop.conf ] && grep -q '^color_theme' ~/.config/btop/btop.conf; then
+    sed -i -E "s|^color_theme.*|color_theme = \"$name\"|" ~/.config/btop/btop.conf
+  else
+    echo "color_theme = \"$name\"" >> ~/.config/btop/btop.conf
+  fi
+  c_ok "btop themed ($name — applies next launch)"
+}
+
+WP_IDX="$THEMES_DIR/.wallpaper"    # remembers which background is current
+_bg_list(){ # print sorted background paths for a theme dir ($1) or the current theme
+  local d="${1:-}"; [ -n "$d" ] || d="$THEMES_DIR/$(cat "$CURRENT" 2>/dev/null)"; d="$d/backgrounds"
+  [ -d "$d" ] || return 1
+  find "$d" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | sort
+}
+_set_wp(){ command -v plasma-apply-wallpaperimage >/dev/null && plasma-apply-wallpaperimage "$1" >/dev/null 2>&1; }
+
+apply_wallpaper(){
+  local dir="$1" bgs; mapfile -t bgs < <(_bg_list "$dir") || true
+  [ "${#bgs[@]}" -gt 0 ] || return 0
+  echo 0 > "$WP_IDX"
+  _set_wp "${bgs[0]}" \
+    && c_ok "wallpaper set ($(basename "${bgs[0]}")) [1/${#bgs[@]} — 'omasteam-theme wallpaper' for the rest]" \
+    || c_warn "wallpaper: apply failed (${bgs[0]})"
+}
+
+cmd_wallpaper(){
+  local arg="${1:-list}" bgs; mapfile -t bgs < <(_bg_list) || true
+  [ "${#bgs[@]}" -gt 0 ] || die "current theme has no backgrounds/"
+  local n=${#bgs[@]} cur; cur=$(cat "$WP_IDX" 2>/dev/null || echo 0)
+  case "$arg" in
+    list) local i; for i in "${!bgs[@]}"; do
+            [ "$i" = "$cur" ] && printf ' \033[1;32m*\033[0m %2d  %s\n' "$i" "$(basename "${bgs[$i]}")" \
+                              || printf '   %2d  %s\n' "$i" "$(basename "${bgs[$i]}")"; done
+          printf '   dir: %s\n' "$(dirname "${bgs[0]}")" ;;
+    next) cur=$(( (cur+1)%n ));;&
+    prev) cur=$(( (cur-1+n)%n ));;&
+    next|prev) _set_wp "${bgs[$cur]}" && echo "$cur">"$WP_IDX" && c_ok "→ $(basename "${bgs[$cur]}")" ;;
+    *[!0-9]*) die "usage: omasteam-theme wallpaper [list|next|prev|<index>]" ;;
+    *) [ "$arg" -lt "$n" ] || die "index out of range (0-$((n-1)))"
+       _set_wp "${bgs[$arg]}" && echo "$arg">"$WP_IDX" && c_ok "→ $(basename "${bgs[$arg]}")" ;;
+  esac
+}
+
+apply_nvim(){
+  local dir="$1"
+  [ -f "$dir/neovim.lua" ] || return 0
+  [ -d ~/.config/nvim/lua/plugins ] || return 0
+  cp -f "$dir/neovim.lua" ~/.config/nvim/lua/plugins/omasteam-theme.lua
+  c_ok "nvim colorscheme staged (installs on next nvim launch)"
+}
+
+set_theme(){
+  local name="${1:?usage: omasteam-theme set <name>}"; local dir="$THEMES_DIR/$name"
+  [ -d "$dir" ] || die "theme '$name' not installed (see: omasteam-theme list)"
+  COLORS="$dir/colors.toml"
+  [ -f "$COLORS" ] || c_warn "no colors.toml in theme — color surfaces may be skipped"
+  c_info "Applying theme: $name"
+  apply_kitty "$name" "$dir"
+  apply_kde   "$name"
+  apply_starship
+  apply_fzf
+  apply_btop  "$name" "$dir"
+  apply_gtk   "$dir"
+  apply_wallpaper "$dir"
+  apply_nvim  "$dir"
+  # icon theme deliberately NOT changed — we keep the generic KDE (Breeze) icons.
+  # (Yaru brought the Ubuntu distributor logo into the app launcher.)
+  echo "$name" > "$CURRENT"
+  echo; c_ok "Now on theme: $name"
+}
+
+cmd_install(){
+  local url="$1" sub="${2:-}"
+  [ -n "$url" ] || die "usage: omasteam-theme install <git-url> [subdir]"
+  local name dir
+  if [ -n "$sub" ]; then
+    # install a SUBDIRECTORY of a repo (e.g. basecamp/omarchy themes/tokyo-night)
+    name=$(basename "$sub"); dir="$THEMES_DIR/$name"
+    local tmp; tmp=$(mktemp -d)
+    c_info "fetching $sub from $url"
+    if git clone --depth 1 --filter=blob:none --sparse -q "$url" "$tmp" 2>/dev/null; then
+      git -C "$tmp" sparse-checkout set "$sub" >/dev/null 2>&1 || true
+    else
+      git clone --depth 1 -q "$url" "$tmp" 2>/dev/null || { rm -rf "$tmp"; die "git clone failed"; }
+    fi
+    [ -d "$tmp/$sub" ] || { rm -rf "$tmp"; die "'$sub' not found in $url"; }
+    rm -rf "$dir"; mkdir -p "$dir"; cp -a "$tmp/$sub/." "$dir/"; rm -rf "$tmp"
+    set_theme "$name"; return
+  fi
+  # install a whole theme repo (community omarchy-*-theme style)
+  name=$(basename "$url" .git); name=${name#omarchy-}; name=${name%-theme}; dir="$THEMES_DIR/$name"
+  if [ -d "$dir/.git" ]; then c_info "updating existing '$name'"; git -C "$dir" pull --ff-only -q || c_warn "pull failed, using existing"
+  else c_info "cloning $url"; git clone --depth 1 -q "$url" "$dir" || die "git clone failed"; fi
+  set_theme "$name"
+}
+
+case "${1:-}" in
+  install) shift; cmd_install "${1:-}" "${2:-}";;
+  omarchy) shift; cmd_install "https://github.com/basecamp/omarchy.git" "themes/${1:?usage: omasteam-theme omarchy <name>  (e.g. tokyo-night)}";;
+  set)     shift; set_theme "${1:-}";;
+  wallpaper|wp) shift; cmd_wallpaper "${1:-list}";;
+  list)    for d in "$THEMES_DIR"/*/; do [ -d "$d" ] || continue; n=$(basename "$d");
+             [ "$(cat "$CURRENT" 2>/dev/null)" = "$n" ] && echo "* $n" || echo "  $n"; done;;
+  current) cat "$CURRENT" 2>/dev/null || echo "(none)";;
+  remove)  shift; n="${1:?usage: remove <name>}"; rm -rf "${THEMES_DIR:?}/$n" && c_ok "removed $n";;
+  ""|-h|--help) awk 'NR>=3{ if($0 ~ /^#/){sub(/^# ?/,"");print} else exit }' "$0";;
+  *) die "unknown command '$1' (try --help)";;
+esac

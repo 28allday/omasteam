@@ -1,0 +1,80 @@
+# ~/.config/starship.toml — pairs with JetBrainsMono Nerd Font
+
+add_newline = true
+command_timeout = 1000
+
+format = """
+[](color_dir)\
+$directory\
+[](fg:color_dir bg:color_git)\
+$git_branch$git_status\
+[](fg:color_git bg:color_ctx)\
+$nodejs$python$rust$golang\
+[](fg:color_ctx)\
+$fill\
+$cmd_duration\
+$line_break\
+$character"""
+
+palette = 'catppuccin_mocha'
+
+[palettes.catppuccin_mocha]
+color_dir = "#89b4fa"
+color_git = "#a6e3a1"
+color_ctx = "#f9e2af"
+text_dark = "#1e1e2e"
+
+[fill]
+symbol = " "
+
+[directory]
+style = "fg:text_dark bg:color_dir"
+format = "[ 󰉋 $path ]($style)"
+truncation_length = 3
+truncation_symbol = "…/"
+read_only = " 󰌾"
+
+[directory.substitutions]
+"Documents" = "󰈙"
+"Downloads" = " "
+"Music" = "󰝚"
+"Pictures" = " "
+
+[git_branch]
+style = "fg:text_dark bg:color_git"
+format = "[ $symbol$branch ]($style)"
+symbol = " "
+
+[git_status]
+style = "fg:text_dark bg:color_git"
+format = "[$all_status$ahead_behind ]($style)"
+
+[nodejs]
+style = "fg:text_dark bg:color_ctx"
+format = "[ $symbol$version ]($style)"
+symbol = " "
+
+[python]
+style = "fg:text_dark bg:color_ctx"
+format = "[ $symbol$version ]($style)"
+symbol = " "
+
+[rust]
+style = "fg:text_dark bg:color_ctx"
+format = "[ $symbol$version ]($style)"
+symbol = " "
+
+[golang]
+style = "fg:text_dark bg:color_ctx"
+format = "[ $symbol$version ]($style)"
+symbol = " "
+
+[cmd_duration]
+min_time = 500
+style = "fg:#f9e2af"
+format = "[ 󱎫 $duration ]($style)"
+
+[character]
+success_symbol = "[❯](bold #a6e3a1)"
+error_symbol = "[❯](bold #f38ba8)"
+vimcmd_symbol = "[❮](bold #a6e3a1)"
