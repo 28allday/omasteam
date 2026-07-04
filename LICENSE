@@ -19,17 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
--------------------------------------------------------------------------------
-DISCLAIMER — NOT AFFILIATED WITH OMARCHY
-
-This is an independent, unofficial project. It is NOT affiliated with,
-endorsed by, sponsored by, or connected to Omarchy, Basecamp, DHH, or any of
-their projects in any way. It merely adapts an Omarchy-style look and workflow
-to a Steam Deck (SteamOS + KDE Plasma) setup.
-
-"Omarchy", "Basecamp", and any other product names, logos, themes, or brands
-referenced are the property of their respective owners and are used here only
-for identification and interoperability. Theme content fetched at runtime from
-third-party repositories is owned by, and licensed under the terms of, those
-respective authors — not this project.

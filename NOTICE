@@ -1,0 +1,19 @@
+omasteam — NOTICE / DISCLAIMER
+
+This project is licensed under the MIT License (see LICENSE).
+
+NOT AFFILIATED WITH OMARCHY
+===========================
+This is an independent, unofficial hobby project. It is NOT affiliated with,
+endorsed by, sponsored by, or connected to Omarchy, Basecamp, DHH, or any of
+their projects in any way. It merely adapts an Omarchy-style look and workflow
+to a Steam Deck (SteamOS + KDE Plasma) setup.
+
+"Omarchy", "Basecamp", and any other product names, logos, themes, or brands
+referenced are the property of their respective owners and are used here only
+for identification and interoperability.
+
+Theme content fetched at runtime from third-party repositories (e.g. Omarchy
+themes and community theme repos) is owned by, and licensed under the terms of,
+those respective authors — not this project. This project only reads and applies
+those files locally; it does not redistribute them.
