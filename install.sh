@@ -3,7 +3,7 @@
 # omasteam — Omarchy-flavored desktop on Steam Deck (SteamOS + KDE Plasma 6)
 #
 # Idempotent: safe to re-run. Everything installs into ~/.local (SteamOS root is
-# read-only, so no pacman / no sudo). See NOTES.md for the why behind each step.
+# read-only, so no pacman / no sudo). See README.md for usage.
 #
 # Usage:
 #   ./install.sh [options]
