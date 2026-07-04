@@ -14,6 +14,24 @@ terminal environment (eza/bat/fzf/zoxide/neovim+LazyVim/starship), and a one-com
 > brings an Omarchy-style look/workflow to SteamOS + KDE. Names and themes belong to
 > their respective owners. MIT licensed ([LICENSE](LICENSE)); see [NOTICE](NOTICE) for the full disclaimer.
 
+## Screenshots
+
+**Before** — stock SteamOS Desktop Mode (KDE Plasma, default panel + wallpaper):
+
+![Stock SteamOS KDE desktop](screenshots/01-stock-steamos-kde.png)
+
+**After** — omasteam: slim top bar, Omarchy theme + wallpaper, `Return to Gaming Mode` still one click away:
+
+![omasteam themed desktop](screenshots/02-omasteam-desktop.png)
+
+**Polonium auto-tiling** — windows tile automatically; here btop, kitty and Firefox share the screen:
+
+![omasteam auto-tiling: btop, kitty, Firefox](screenshots/03-tiling-btop-kitty-firefox.png)
+
+**omadots terminal env** — neovim + LazyVim in a kitty pane alongside btop and Firefox:
+
+![omasteam with LazyVim, btop and Firefox](screenshots/04-tiling-btop-firefox-lazyvim.png)
+
 ## Quick start
 
 On the Deck: switch to Desktop Mode, open Konsole, then:
