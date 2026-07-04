@@ -16,31 +16,15 @@ terminal environment (eza/bat/fzf/zoxide/neovim+LazyVim/starship), and a one-com
 
 ## Quick start
 
+On the Deck: switch to Desktop Mode, open Konsole, then:
+
 ```bash
-git clone <this-repo-url> ~/omasteam
+git clone https://github.com/28allday/omasteam.git ~/omasteam
 cd ~/omasteam
 ./install.sh --with-omadots
 # then LOG OUT / reboot
+# after the reboot, pick a theme if you like:  theme omarchy tokyo-night
 ```
-
-## Bootstrapping a freshly-flashed Steam Deck (private repo)
-
-Desktop Mode → Konsole. Since the repo is private, install `gh` and auth first:
-
-```bash
-mkdir -p ~/.local/bin && export PATH="$HOME/.local/bin:$PATH"
-cd /tmp && curl -fsSL "$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest \
-  | grep -oE 'https://[^\"]+_linux_amd64\.tar\.gz' | head -1)" -o gh.tgz \
-  && tar xzf gh.tgz && install -m755 gh_*/bin/gh ~/.local/bin/gh
-
-gh auth login                       # GitHub.com → HTTPS → login with a web browser
-gh repo clone 28allday/omasteam ~/omasteam
-cd ~/omasteam && ./install.sh --with-omadots
-# reboot, then pick a theme:  theme omarchy tokyo-night
-```
-
-(Alternative: temporarily flip the repo to public, `git clone https://…`, flip back —
-no `gh`/token needed.)
 
 **Themes are optional and up to you** — the install doesn't apply one. After the reboot,
 pick any Omarchy theme whenever you like:
