@@ -2,7 +2,9 @@
 # Re-assert omasteam launcher shortcuts. Custom ~/.local .desktop launchers created during
 # install are invisible to that session's kglobalaccel (login-time ksycoca snapshot), so they
 # load next login "reserved but not grabbed" — a daemon setForeignShortcut establishes the
-# real grab. System .desktops (dolphin/firefox/krunner) are always cached, so they're skipped.
+# real grab. System .desktops (dolphin/krunner) are always cached, so they're skipped — but
+# a flatpak browser installed in the same session as omasteam has the same staleness problem,
+# so the browser is re-asserted here too.
 sleep 4   # let kglobalaccel + ksycoca settle after login
 b(){ dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
      org.kde.KGlobalAccel.setForeignShortcut array:string:"$1","_launch","$2","$2" array:int32:"$3" >/dev/null 2>&1; }
@@ -10,3 +12,5 @@ b kitty.desktop                   "Launch kitty"   285212676   # Super+Return
 b omarchy-btop.desktop            "btop"           268435540   # Super+T
 b omarchy-nvim.desktop            "Neovim"         268435534   # Super+N
 b omasteam-wallpaper-next.desktop "Next Wallpaper" 335544352   # Meta+Ctrl+Space
+BROWSER="$(xdg-settings get default-web-browser 2>/dev/null)"
+b "${BROWSER:-org.mozilla.firefox.desktop}"        "Web Browser"    268435522   # Meta+B

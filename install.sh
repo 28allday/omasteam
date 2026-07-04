@@ -269,11 +269,18 @@ EOF
   # dropped at login as a "conflict". (2) [services] launcher entries written to the file
   # don't register. setForeignShortcut updates the RUNNING daemon and writes the file, so it
   # sticks across logout AND applies immediately (no relogin). Requires an active session.
+  # (3) On a fresh one-shot install, even the "non-conflicting" kwriteconfig6 writes above
+  # get CLOBBERED: entries for components the running daemon already registered (kwin core,
+  # Polonium) live dirty in its memory with their defaults, and the daemon's next settings
+  # sync — triggered seconds later by our own setForeignShortcut calls — writes those
+  # defaults back over our file edits. So every kwin/Polonium bind is re-asserted through
+  # the daemon below; the file writes above only matter for the no-dbus fallback path.
   if ! have dbus-send; then
     warn "dbus-send missing / no session — conflicting + launcher shortcuts not set"
     ok "Polonium + non-conflicting binds written to file"; return
   fi
-  local META=268435456 ALT=134217728
+  local META=268435456 ALT=134217728 SHIFT=33554432 CTRL=67108864
+  local KLEFT=16777234 KUP=16777235 KRIGHT=16777236 KDOWN=16777237 KF11=16777274
   setsc() { # comp action compFriendly actFriendly  keys(comma-sep ints, empty=clear)
     dbus-send --session --type=method_call --dest=org.kde.kglobalaccel \
       /kglobalaccel org.kde.KGlobalAccel.setForeignShortcut \
@@ -287,13 +294,46 @@ EOF
   done
   setsc "org_kde_powerdevil" "powerProfile" "Power Management" "Switch Power Profile" ""   # frees Meta+B
 
+  # Free KWin defaults that collide (quick-tile Meta+arrows, tiles editor Meta+T)
+  setsc "kwin" "Window Quick Tile Left"   "KWin" "Quick Tile Window to the Left"   ""
+  setsc "kwin" "Window Quick Tile Right"  "KWin" "Quick Tile Window to the Right"  ""
+  setsc "kwin" "Window Quick Tile Top"    "KWin" "Quick Tile Window to the Top"    ""
+  setsc "kwin" "Window Quick Tile Bottom" "KWin" "Quick Tile Window to the Bottom" ""
+  setsc "kwin" "Edit Tiles"               "KWin" "Toggle Tiles Editor"             ""
+  # Meta+Shift+Left/Right are KWin defaults for prev/next screen — they beat PoloniumPlace*
+  setsc "kwin" "Window to Previous Screen" "KWin" "Window to Previous Screen" ""
+  setsc "kwin" "Window to Next Screen"     "KWin" "Window to Next Screen"     ""
+
   # KWin-core binds that needed a conflict freed
   setsc "kwin" "Window Close" "KWin" "Close Window" "$((META+87)),$((ALT+16777267))"        # Meta+W, Alt+F4
   for n in 1 2 3 4 5 6 7 8 9; do
     setsc "kwin" "Switch to Desktop $n" "KWin" "Switch to Desktop $n" "$((META+48+n))"       # Meta+<n>
   done
 
-  # App launchers (via daemon so they actually register)
+  # Re-assert every file-written kwin/Polonium bind through the daemon (see comment above)
+  setsc "kwin" "PoloniumActivateLeft"  "KWin" "Polonium: Activate Left"  "$((META+KLEFT)),$((META+72))"
+  setsc "kwin" "PoloniumActivateRight" "KWin" "Polonium: Activate Right" "$((META+KRIGHT)),$((META+76))"
+  setsc "kwin" "PoloniumActivateAbove" "KWin" "Polonium: Activate Above" "$((META+KUP)),$((META+75))"
+  setsc "kwin" "PoloniumActivateBelow" "KWin" "Polonium: Activate Below" "$((META+KDOWN)),$((META+74))"
+  setsc "kwin" "PoloniumPlaceLeft"  "KWin" "Polonium: Place Window Left"  "$((META+SHIFT+KLEFT)),$((META+SHIFT+72))"
+  setsc "kwin" "PoloniumPlaceRight" "KWin" "Polonium: Place Window Right" "$((META+SHIFT+KRIGHT)),$((META+SHIFT+76))"
+  setsc "kwin" "PoloniumPlaceAbove" "KWin" "Polonium: Place Window Above" "$((META+SHIFT+KUP)),$((META+SHIFT+75))"
+  setsc "kwin" "PoloniumPlaceBelow" "KWin" "Polonium: Place Window Below" "$((META+SHIFT+KDOWN)),$((META+SHIFT+74))"
+  setsc "kwin" "PoloniumResizeLeft"  "KWin" "Polonium: Resize Tile Left"  "$((META+CTRL+72)),$((META+45))"  # Meta+Ctrl+H, Meta+-
+  setsc "kwin" "PoloniumResizeRight" "KWin" "Polonium: Resize Tile Right" "$((META+CTRL+76)),$((META+61))"  # Meta+Ctrl+L, Meta+=
+  setsc "kwin" "PoloniumToggleActiveTiling" "KWin" "Polonium: Toggle Tiling on Active Window" "$((META+SHIFT+32)),$((META+SHIFT+86))"
+  setsc "kwin" "Window Fullscreen" "KWin" "Make Window Fullscreen" "$((SHIFT+KF11))"         # Shift+F11
+  for n in 1 2 3 4 5 6 7 8 9; do
+    setsc "kwin" "Window to Desktop $n" "KWin" "Window to Desktop $n" "$((META+SHIFT+48+n))" # Meta+Shift+<n>
+  done
+
+  # App launchers (via daemon so they actually register). On a FRESH install the daemon's
+  # login-time ksycoca snapshot predates the .desktop files we just created (and any
+  # just-installed flatpak browser), so these setsc calls silently no-op. The svc() file
+  # entry is the safety net: it creates the component at next login, and the autostart
+  # rebind (bin/omasteam-rebind-shortcuts) then establishes the real grab. Components the
+  # daemon doesn't know are never clobbered by its settings syncs, so the file write is safe.
+  svc() { kwriteconfig6 --file "$KGS" --group services --group "$1" --key _launch "$2"; }
   local BROWSER_DESKTOP
   BROWSER_DESKTOP="$(xdg-settings get default-web-browser 2>/dev/null || true)"
   [ -n "$BROWSER_DESKTOP" ] || BROWSER_DESKTOP="org.mozilla.firefox.desktop"
@@ -302,6 +342,9 @@ EOF
   setsc "$BROWSER_DESKTOP"        "_launch" "Browser" "Web Browser"  "$((META+66))"             # Meta+B
   setsc "omarchy-btop.desktop"    "_launch" "btop"    "btop"         "$((META+84))"             # Meta+T
   setsc "org.kde.krunner.desktop" "_launch" "KRunner" "KRunner"      "$((META+32)),$((ALT+32))" # Meta+Space, Alt+Space
+  svc "kitty.desktop"        "Meta+Return,none,Launch kitty"
+  svc "omarchy-btop.desktop" "Meta+T,none,btop"
+  svc "$BROWSER_DESKTOP"     "Meta+B,none,Web Browser"
 
   qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || true
   ok "keybindings applied live via kglobalaccel (browser: $BROWSER_DESKTOP)"
