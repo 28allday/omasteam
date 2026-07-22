@@ -13,8 +13,9 @@
 #     --omadots-no-nvim   With --with-omadots, skip neovim/LazyVim
 #     --with-bar          Install the omasteam bar: an Omarchy-4-style QML
 #                         layer-shell top bar (workspaces, clock, volume,
-#                         network, battery, Return-to-Gaming). Moves the Plasma
-#                         panel to the bottom so its tray stays available.
+#                         network, battery, Return-to-Gaming). Removes the stock
+#                         Plasma panel (backed up first) so the bar owns the
+#                         desktop, Omarchy-style.
 #     --theme <git-url>   Install the omasteam-theme switcher, then apply this
 #                         Omarchy theme repo (e.g. an omarchy-*-theme git URL)
 #     --no-keybindings    Skip the Omarchy keybinding mapping
@@ -484,15 +485,28 @@ configure_panel() {
       || warn "could not set Plasma Style"
   fi
   have qdbus6 || { warn "qdbus6 missing — leaving panel position as-is"; return; }
-  # With the omasteam bar installed, it owns the TOP; the Plasma panel moves to
-  # the BOTTOM so its real system tray and the Return-to-Gaming button stay put.
-  # Otherwise the Plasma panel itself goes to the top (Omarchy-style). Live via
-  # plasmashell scripting — editing appletsrc directly gets clobbered.
-  local loc="top" where="top"
-  if [ "$WITH_BAR" = 1 ]; then loc="bottom"; where="bottom (omasteam bar owns the top)"; fi
-  qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript \
-    "var p = panels(); for (var i = 0; i < p.length; i++) { p[i].location = \"$loc\"; }" >/dev/null 2>&1 \
-    && ok "Plasma panel moved to $where" || warn "could not move panel (plasmashell not running?)"
+  # Back up the panel layout once so removal/relocation is reversible.
+  local cfg="$HOME/.config/plasma-org.kde.plasma.desktop-appletsrc"
+  local bk="$HOME/.config/omasteam-panel-backup.appletsrc"
+  [ -f "$cfg" ] && [ ! -f "$bk" ] && cp -f "$cfg" "$bk" \
+    && ok "Plasma panel layout backed up ($bk)"
+  # With the omasteam bar installed it OWNS the desktop chrome, Omarchy-style —
+  # so the stock Plasma panel is removed entirely (no bottom taskbar). This
+  # drops Plasma's system tray; omasteam-bar carries network/volume/battery/
+  # power/return-to-gaming/menu instead. Restore with the backup above, or:
+  #   qdbus6 org.kde.plasmashell /PlasmaShell evaluateScript 'var p=new Panel; p.location="bottom"'
+  # Without the bar, the Plasma panel just moves to the top (Omarchy-style).
+  # Live via plasmashell scripting — editing appletsrc directly gets clobbered.
+  if [ "$WITH_BAR" = 1 ]; then
+    qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript \
+      'panels().forEach(function(p){ p.remove() })' >/dev/null 2>&1 \
+      && ok "Plasma panel removed (omasteam bar owns the desktop)" \
+      || warn "could not remove panel (plasmashell not running?)"
+  else
+    qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript \
+      'var p = panels(); for (var i = 0; i < p.length; i++) { p[i].location = "top"; }' >/dev/null 2>&1 \
+      && ok "Plasma panel moved to top" || warn "could not move panel (plasmashell not running?)"
+  fi
 }
 
 # ----------------------------------------------------------------------------

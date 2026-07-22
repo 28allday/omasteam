@@ -46,7 +46,11 @@ case "${1:-}" in
     exit 0 ;;
 esac
 
-# One daemon only.
+# Single instance: replace any bar/daemon already running (autostart may have
+# launched one). Without the bar pkill, a second launch stacks a duplicate
+# layer-shell surface on top of the first. Our own command line is
+# `omasteam-bar`, not `...rendered.qml`/`...-daemon`, so pkill won't hit us.
+pkill -f "$BAR_PAT" 2>/dev/null
 pkill -f "$DAEMON_PAT" 2>/dev/null
 "$DAEMON" >/dev/null 2>&1 &
 # Give it a beat to write the first state so the bar starts populated.
