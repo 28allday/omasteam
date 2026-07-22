@@ -64,6 +64,7 @@ the autostart that grabs the launcher shortcuts). After the reboot, everything w
 | *(none)* | Desktop only: kitty, default-terminal, font, Polonium, keybinds |
 | `--with-omadots` | + terminal/dev env (eza, bat, fzf, zoxide, neovim/LazyVim, starship, shell) |
 | `--omadots-no-nvim` | with `--with-omadots`, skip neovim/LazyVim |
+| `--with-bar` | + the **omasteam bar**: an Omarchy-4-style QML top bar (see below) |
 | `--theme <git-url>` | install the theme switcher and apply this Omarchy theme |
 | `--with-starship` | standalone starship (implied by `--with-omadots`) |
 | `--force-kitty` | reinstall kitty even if present |
@@ -97,6 +98,44 @@ GTK apps, wallpaper, and neovim — all from the theme's `colors.toml`. The **ic
 left alone** (system default KDE/Breeze) — themes don't touch it, so no distributor logos
 sneak into the app launcher.
 
+## The omasteam bar (`--with-bar`)
+
+An **Omarchy-4-style top bar** — the "quattro" bar — reproduced in pure **QML**,
+run by SteamOS's stock **Qt6** as a **wlr-layer-shell** surface. No Quickshell
+(Omarchy's compositor-specific shell framework), no compiling, no `sudo`.
+
+```
+ ☰  1 2 3 4 5 6 7 8 9        Wed 21:16         steam | 󰤨 󰕾 40% 󰁹 ⏻
+ menu + workspaces              clock            Return-to-Gaming + status
+```
+
+- **Left:** launcher (`Super+Space`) + KWin virtual desktops (active = accent)
+- **Center:** live clock
+- **Right:** **Return to Gaming Mode**, network, volume (scroll to change, click to
+  mute), battery (auto-hides if none), power
+- **Theme-synced:** re-colors from the active omasteam theme's `colors.toml`
+- **Interactive:** clicking a workspace switches to it; the power button opens
+  the KDE logout prompt
+
+It installs the Plasma panel to the **bottom** (not hidden) so the Deck's real
+system tray — and its own Return-to-Gaming button — stay one tap away. The
+`Return to Gaming Mode` desktop icon is untouched.
+
+How it works: a small bash daemon (`omasteam-bar-daemon`) polls the system +
+theme and writes `~/.local/state/omasteam-bar/state.json`; the bar reads it on a
+timer and pushes clicks back through a tiny SQLite outbox (plain QML can't spawn
+processes — that's the one thing Quickshell adds that stock Qt lacks).
+
+```bash
+omasteam-bar            # start (also autostarts at login)
+omasteam-bar stop       # stop bar + daemon
+omasteam-bar restart
+omasteam-bar status
+```
+
+Needs a KDE Plasma 6 **Wayland** session (uses `org.kde.layershell` +
+`zwlr_layer_shell_v1`, both stock on SteamOS).
+
 ## Key bindings (Omarchy-style)
 
 `Super+Return` kitty · `Super+Space` KRunner · `Super+F` files · `Super+B` browser ·
@@ -107,9 +146,11 @@ sneak into the app launcher.
 ## Layout
 
 ```
-install.sh        one idempotent entry point (desktop + terminal + theming)
-bin/              omasteam-theme, theme (wrapper), omasteam-rebind-shortcuts
+install.sh        one idempotent entry point (desktop + terminal + theming + bar)
+bin/              omasteam-theme, theme (wrapper), omasteam-rebind-shortcuts,
+                  omasteam-bar (launcher), omasteam-bar-daemon (bar backend)
 artifacts/        static config files copied into place (kitty.conf, service menu, …)
+artifacts/bar/    omasteam-bar.qml (the QML bar) + its autostart .desktop
 ```
 
 Everything installs into `~/.local` and is safe to re-run. Built for SteamOS's

@@ -1,0 +1,66 @@
+#!/bin/bash
+# omasteam-bar — launch the QML layer-shell bar (and its daemon) on KDE Wayland.
+#
+# Pure userland: uses SteamOS's stock Qt6 + org.kde.layershell. No Quickshell,
+# no compiling, no sudo. `qmlscene` is used (not `qml`) because `qml` silently
+# swallows QML errors; the layer-shell integration is turned on via the env var
+# QT_WAYLAND_SHELL_INTEGRATION, which is exactly what LayerShellQt::useLayerShell
+# sets under the hood.
+set -uo pipefail
+
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# QML lives in artifacts/bar/ next to bin/ in the repo, or in the installed
+# share dir once install.sh has copied it.
+QML=""
+for cand in \
+  "$HERE/../artifacts/bar/omasteam-bar.qml" \
+  "$HOME/.local/share/omasteam/bar/omasteam-bar.qml"; do
+  [ -f "$cand" ] && { QML="$cand"; break; }
+done
+[ -n "$QML" ] || { echo "omasteam-bar: cannot find omasteam-bar.qml" >&2; exit 1; }
+
+DAEMON="$HERE/omasteam-bar-daemon"
+[ -x "$DAEMON" ] || DAEMON="$HOME/.local/share/omasteam/bar/omasteam-bar-daemon"
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar"
+STATE="$STATE_DIR/state.json"
+
+QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
+[ -n "$QMLSCENE" ] || { echo "omasteam-bar: qmlscene not found" >&2; exit 1; }
+
+# The running bar is `qmlscene .../omasteam-bar.rendered.qml`; the backend is
+# `.../omasteam-bar-daemon`. Match those exact command lines to stop them.
+BAR_PAT="omasteam-bar.rendered.qml"
+DAEMON_PAT="omasteam-bar-daemon"
+
+case "${1:-}" in
+  stop)
+    pkill -f "$DAEMON_PAT" 2>/dev/null
+    pkill -f "$BAR_PAT" 2>/dev/null
+    echo "omasteam-bar: stopped"; exit 0 ;;
+  restart)
+    "$0" stop; sleep 0.3 ;;
+  status)
+    pgrep -f "$BAR_PAT" >/dev/null && echo "bar: running" || echo "bar: stopped"
+    pgrep -f "$DAEMON_PAT" >/dev/null && echo "daemon: running" || echo "daemon: stopped"
+    exit 0 ;;
+esac
+
+# One daemon only.
+pkill -f "$DAEMON_PAT" 2>/dev/null
+"$DAEMON" >/dev/null 2>&1 &
+# Give it a beat to write the first state so the bar starts populated.
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$STATE" ] && break; sleep 0.1; done
+
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
+export QT_WAYLAND_SHELL_INTEGRATION=layer-shell
+# Qt's QML XMLHttpRequest refuses local file:// reads unless this is set. The
+# bar polls state.json this way, so without it the bar renders but stays empty.
+export QML_XHR_ALLOW_FILE_READ=1
+
+# Render the state path into a self-contained temp QML (qmlscene can't take
+# argv/env reliably). The QML imports only Qt modules, so a temp copy is safe.
+RENDERED="$STATE_DIR/omasteam-bar.rendered.qml"
+sed "s|@@STATE@@|$STATE|g" "$QML" > "$RENDERED"
+
+exec "$QMLSCENE" "$RENDERED"

@@ -1,0 +1,193 @@
+#!/bin/bash
+# omasteam-bar-daemon — feeds the QML bar.
+#
+# Plain QML (the qmlscene runtime) has no way to launch subprocesses — that is
+# the main thing Quickshell adds and the main thing SteamOS's stock Qt does not
+# have. So this daemon is the bar's "backend": on a tick it polls the system
+# (clock, volume, network, battery, virtual desktops) plus the active omasteam
+# theme palette, and writes it all to one JSON file the bar reads via a Timer.
+#
+# It also drains a command FIFO so the bar can act on clicks (volume, mute,
+# switch desktop, power menu) without QML ever spawning a process itself.
+
+set -uo pipefail
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar"
+STATE="$STATE_DIR/state.json"
+CMD_FIFO="$STATE_DIR/cmd.fifo"
+mkdir -p "$STATE_DIR"
+
+# Active theme palette lives in the current omasteam theme's colors.toml.
+THEMES_DIR="$HOME/.config/omasteam/themes"
+KWIN=org.kde.KWin
+
+# ---- palette --------------------------------------------------------------
+# Pull a 6-hex value for KEY from the current theme's colors.toml (no leading #).
+theme_dir() {
+  local cur="$THEMES_DIR/.current"
+  [ -f "$cur" ] || return 1
+  local name; name=$(cat "$cur" 2>/dev/null)
+  [ -n "$name" ] && [ -d "$THEMES_DIR/$name" ] && printf '%s\n' "$THEMES_DIR/$name"
+}
+COLORS_FILE=""   # set each tick by palette(); top-level so set -u is safe.
+
+# val KEY -> 6 hex digits (no #) from the current theme's colors.toml, or empty.
+val() {
+  [ -n "$COLORS_FILE" ] && [ -f "$COLORS_FILE" ] || return 0
+  grep -iE "^[[:space:]]*$1[[:space:]]*=" "$COLORS_FILE" 2>/dev/null \
+    | head -1 | grep -oiE '[0-9A-Fa-f]{6}' | head -1
+  return 0
+}
+
+palette() {
+  # Emits: bg fg accent  (falls back to a tokyo-night-ish default)
+  local dir="" bg fg ac
+  COLORS_FILE=""
+  dir=$(theme_dir) && COLORS_FILE="$dir/colors.toml"
+  bg=$(val background); fg=$(val foreground); ac=$(val accent)
+  [ -n "$ac" ] || ac=$(val selection_background); [ -n "$ac" ] || ac=$(val color4)
+  [ -n "$bg" ] || bg="1a1b26"
+  [ -n "$fg" ] || fg="c0caf5"
+  [ -n "$ac" ] || ac="7aa2f7"
+  printf '%s %s %s\n' "$bg" "$fg" "$ac"
+}
+
+# ---- data sources ---------------------------------------------------------
+volume_json() {
+  local out vol muted
+  out=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null) || { echo '"vol":-1,"muted":false'; return; }
+  vol=$(printf '%s' "$out" | grep -oE '[0-9]+\.[0-9]+' | head -1)
+  muted=false; printf '%s' "$out" | grep -qi muted && muted=true
+  vol=$(awk -v v="${vol:-0}" 'BEGIN{printf "%d", v*100+0.5}')
+  printf '"vol":%s,"muted":%s' "${vol:-0}" "$muted"
+}
+
+battery_json() {
+  local b cap st
+  for b in /sys/class/power_supply/BAT* /sys/class/power_supply/battery; do
+    [ -d "$b" ] || continue
+    cap=$(cat "$b/capacity" 2>/dev/null); st=$(cat "$b/status" 2>/dev/null)
+    [ -n "$cap" ] || continue
+    local chg=false; [ "$st" = "Charging" ] && chg=true
+    printf '"battery":{"pct":%s,"charging":%s}' "$cap" "$chg"; return
+  done
+  printf '"battery":null'
+}
+
+network_json() {
+  # First connected, non-loopback device wins. type: ethernet|wifi|none
+  local line type state conn
+  while IFS=: read -r type state conn; do
+    case "$type" in
+      ethernet) [ "$state" = "connected" ] && { printf '"net":{"type":"ethernet","name":"%s"}' "${conn:-Wired}"; return; } ;;
+      wifi)     [ "$state" = "connected" ] && { printf '"net":{"type":"wifi","name":"%s"}' "${conn:-WiFi}"; return; } ;;
+    esac
+  done < <(nmcli -t -f TYPE,STATE,CONNECTION dev 2>/dev/null)
+  printf '"net":{"type":"none","name":""}'
+}
+
+desktops_json() {
+  # KWin virtual desktops -> {"count":N,"current":I,"names":[...]}
+  local count cur desks
+  count=$(qdbus6 "$KWIN" /VirtualDesktopManager count 2>/dev/null)
+  cur=$(qdbus6 "$KWIN" /VirtualDesktopManager current 2>/dev/null)   # id string
+  desks=$(qdbus6 "$KWIN" /VirtualDesktopManager desktops 2>/dev/null) # flattened (pos,id,name)*
+  [ -n "$count" ] || { printf '"desktops":{"count":1,"current":1,"names":["1"]}'; return; }
+  # desktops prints 3 lines per entry: position, id, name. Walk them.
+  local names="[]" idx=1 field=0 pos="" id="" curidx=1 first=1
+  names=""
+  while IFS= read -r ln; do
+    case $field in
+      0) pos="$ln" ;;
+      1) id="$ln" ;;
+      2)
+        local nm="$ln"; [ -n "$nm" ] || nm="$((pos+1))"
+        [ "$id" = "$cur" ] && curidx=$((pos+1))
+        [ $first -eq 1 ] && first=0 || names+=","
+        names+="\"$(printf '%s' "$nm" | sed 's/"/\\"/g')\""
+        ;;
+    esac
+    field=$(( (field+1) % 3 ))
+  done < <(printf '%s\n' "$desks")
+  [ -n "$names" ] || names="\"1\""
+  printf '"desktops":{"count":%s,"current":%s,"names":[%s]}' "$count" "$curidx" "$names"
+}
+
+write_state() {
+  local pal bg fg ac now day date_l
+  pal=$(palette); read -r bg fg ac <<<"$pal"
+  now=$(date +%H:%M); day=$(date +%a); date_l=$(date '+%-d %b')
+  {
+    printf '{'
+    printf '"time":"%s","day":"%s","date":"%s",' "$now" "$day" "$date_l"
+    printf '%s,' "$(volume_json)"
+    printf '%s,' "$(network_json)"
+    printf '%s,' "$(battery_json)"
+    printf '%s,' "$(desktops_json)"
+    printf '"colors":{"bg":"#%s","fg":"#%s","accent":"#%s"}' "$bg" "$fg" "$ac"
+    printf '}\n'
+  } > "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE"
+}
+
+# ---- command bridge -------------------------------------------------------
+run_cmd() {
+  case "$1" in
+    vol-up)   wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+ ;;
+    vol-down) wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- ;;
+    vol-mute) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
+    desktop-*) qdbus6 "$KWIN" /VirtualDesktopManager \
+                 org.freedesktop.DBus.Properties.Set org.kde.KWin.VirtualDesktopManager \
+                 current "${1#desktop-}" 2>/dev/null ;;
+    menu)     command -v krunner >/dev/null && krunner 2>/dev/null & ;;
+    power)    qdbus6 org.kde.LogoutPrompt /LogoutPrompt promptLogout 2>/dev/null \
+                || qdbus6 org.kde.ksmserver /KSMServer logout 1 0 3 2>/dev/null & ;;
+    return-to-gaming)
+              # Mirror ~/Desktop/Return.desktop: switch straight to Game Mode
+              # when this Deck logs into desktop by default, else log out (which
+              # drops back to Game Mode on a Deck that boots to gaming).
+              if [ "$(steamosctl get-default-login-mode 2>/dev/null)" = desktop ]; then
+                steamosctl switch-to-game-mode 2>/dev/null &
+              else
+                qdbus6 org.kde.Shutdown /Shutdown org.kde.Shutdown.logout 2>/dev/null &
+              fi ;;
+    *) : ;;
+  esac
+  write_state
+}
+
+# ---- main loop ------------------------------------------------------------
+# The bar pushes clicks through a SQLite outbox (QML LocalStorage), which this
+# daemon drains every tick. No FIFO: a read-only FIFO open blocks until a writer
+# appears, and there is nothing the bar could write to it anyway.
+#
+# QML LocalStorage lands the DB under a Qt-version-specific path
+# (~/.local/share/QtProject/QtQmlViewer/QML/OfflineStorage/Databases/), so we
+# locate it with `find` rather than a fixed glob and match by having an 'outbox'
+# table (the DB filename is an MD5 of the db name, not human-readable).
+drain_outbox() {
+  command -v sqlite3 >/dev/null || return
+  local db c
+  while IFS= read -r db; do
+    [ -f "$db" ] || continue
+    sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
+    while IFS= read -r c; do
+      [ -n "$c" ] && run_cmd "$c"
+    done < <(sqlite3 "$db" "SELECT cmd FROM outbox ORDER BY id;" 2>/dev/null)
+    sqlite3 "$db" "DELETE FROM outbox;" 2>/dev/null
+  done < <(find "$HOME/.local/share" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+}
+
+# --once: write a single fresh snapshot and exit (used for testing / manual
+# refresh). Without it, tick forever.
+if [ "${1:-}" = "--once" ]; then
+  write_state
+  drain_outbox
+  exit 0
+fi
+
+echo "omasteam-bar-daemon: writing $STATE (tick 1s)" >&2
+while true; do
+  write_state
+  drain_outbox
+  sleep 1
+done

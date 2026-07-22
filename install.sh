@@ -11,6 +11,10 @@
 #     --with-omadots      Phase 2: install the omadots terminal env (CLI toolchain,
 #                         shell configs, official starship, btop theme, nvim/LazyVim)
 #     --omadots-no-nvim   With --with-omadots, skip neovim/LazyVim
+#     --with-bar          Install the omasteam bar: an Omarchy-4-style QML
+#                         layer-shell top bar (workspaces, clock, volume,
+#                         network, battery, Return-to-Gaming). Moves the Plasma
+#                         panel to the bottom so its tray stays available.
 #     --theme <git-url>   Install the omasteam-theme switcher, then apply this
 #                         Omarchy theme repo (e.g. an omarchy-*-theme git URL)
 #     --no-keybindings    Skip the Omarchy keybinding mapping
@@ -33,6 +37,7 @@ DO_KEYBINDINGS=1
 FORCE_KITTY=0
 WITH_OMADOTS=0
 OMADOTS_NVIM=1
+WITH_BAR=0
 THEME_URL=""
 
 KITTY_VERSION_PIN=""          # empty = latest via official installer
@@ -44,6 +49,7 @@ while [ $# -gt 0 ]; do
     --with-starship)   WITH_STARSHIP=1 ;;
     --with-omadots)    WITH_OMADOTS=1 ;;
     --omadots-no-nvim) OMADOTS_NVIM=0 ;;
+    --with-bar)        WITH_BAR=1 ;;
     --theme)           THEME_URL="${2:-}"; [ $# -ge 2 ] && shift ;;
     --no-keybindings)  DO_KEYBINDINGS=0 ;;
     --force-kitty)     FORCE_KITTY=1 ;;
@@ -425,6 +431,48 @@ EOF
 }
 
 # ----------------------------------------------------------------------------
+# omasteam bar — Omarchy-4-style QML top bar (--with-bar)
+# ----------------------------------------------------------------------------
+# A wlr-layer-shell surface written in pure QML, run by SteamOS's stock Qt6 via
+# `qmlscene` + the org.kde.layershell module. No Quickshell, no compiling, no
+# sudo. A companion daemon feeds it live state (clock, workspaces, volume,
+# network, battery) and the active omasteam theme palette; the bar reads that
+# over a Timer and pushes clicks back through a SQLite outbox.
+install_bar() {
+  [ "$WITH_BAR" = 1 ] || { ok "bar not requested (--with-bar) — skipping"; return; }
+
+  # Hard dependencies, all shipped with SteamOS's KDE — but verify.
+  local qs; qs="$(command -v qmlscene6 || command -v qmlscene || true)"
+  [ -n "$qs" ] || { warn "qmlscene(6) not found — cannot install the bar"; return; }
+  [ -d /usr/lib/qt6/qml/org/kde/layershell ] \
+    || [ -d /usr/lib/qt/qml/org/kde/layershell ] \
+    || { warn "org.kde.layershell QML module missing — cannot install the bar"; return; }
+
+  log "Installing omasteam bar (QML layer-shell)"
+  local share="$HOME/.local/share/omasteam/bar"
+  mkdir -p "$share"
+  install -m644 "$ART/bar/omasteam-bar.qml"     "$share/omasteam-bar.qml"
+  install -m755 "$SCRIPT_DIR/bin/omasteam-bar"        "$HOME/.local/bin/omasteam-bar"
+  install -m755 "$SCRIPT_DIR/bin/omasteam-bar-daemon" "$HOME/.local/bin/omasteam-bar-daemon"
+  # Keep a copy of the QML beside the installed scripts too (the launcher looks
+  # here when run outside the repo checkout).
+  install -m755 "$SCRIPT_DIR/bin/omasteam-bar-daemon" "$share/omasteam-bar-daemon"
+
+  # Autostart at login (KDE Wayland). Exec resolves via ~/.local/bin on PATH.
+  mkdir -p ~/.config/autostart
+  install -m644 "$ART/bar/omasteam-bar.desktop" ~/.config/autostart/omasteam-bar.desktop
+  ok "bar + daemon installed; autostarts at next login"
+
+  # Start it now so the change is visible without a relogin. setsid fully
+  # detaches it into its own session so it survives this script and isn't tied
+  # to the caller's process group.
+  if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    setsid "$HOME/.local/bin/omasteam-bar" restart >/dev/null 2>&1 </dev/null &
+    ok "bar started (live)"
+  fi
+}
+
+# ----------------------------------------------------------------------------
 # Move the Plasma panel (taskbar) to the top of the screen (Omarchy-style)
 # ----------------------------------------------------------------------------
 configure_panel() {
@@ -436,10 +484,15 @@ configure_panel() {
       || warn "could not set Plasma Style"
   fi
   have qdbus6 || { warn "qdbus6 missing — leaving panel position as-is"; return; }
-  # Move the panel to the top. Live via plasmashell scripting (editing appletsrc gets clobbered).
+  # With the omasteam bar installed, it owns the TOP; the Plasma panel moves to
+  # the BOTTOM so its real system tray and the Return-to-Gaming button stay put.
+  # Otherwise the Plasma panel itself goes to the top (Omarchy-style). Live via
+  # plasmashell scripting — editing appletsrc directly gets clobbered.
+  local loc="top" where="top"
+  if [ "$WITH_BAR" = 1 ]; then loc="bottom"; where="bottom (omasteam bar owns the top)"; fi
   qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript \
-    'var p = panels(); for (var i = 0; i < p.length; i++) { p[i].location = "top"; }' >/dev/null 2>&1 \
-    && ok "Plasma panel moved to top" || warn "could not move panel (plasmashell not running?)"
+    "var p = panels(); for (var i = 0; i < p.length; i++) { p[i].location = \"$loc\"; }" >/dev/null 2>&1 \
+    && ok "Plasma panel moved to $where" || warn "could not move panel (plasmashell not running?)"
 }
 
 # ----------------------------------------------------------------------------
@@ -509,6 +562,7 @@ install_kitty_config
 install_starship
 install_polonium
 configure_keybindings
+install_bar
 configure_panel
 install_omadots
 install_theme_tool
