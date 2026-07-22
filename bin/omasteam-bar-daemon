@@ -184,6 +184,19 @@ drain_outbox() {
   done < <(find "$HOME/.local/share" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
 }
 
+# Discard (don't run) anything left in the outbox — clicks queued before this
+# daemon started belong to a dead session. Critical for session switches: a
+# 'return-to-gaming' or 'power' left over from last time would otherwise fire
+# the instant the bar comes back, bouncing the user straight out of desktop.
+purge_outbox() {
+  command -v sqlite3 >/dev/null || return
+  local db
+  while IFS= read -r db; do
+    [ -f "$db" ] || continue
+    sqlite3 "$db" "DELETE FROM outbox;" 2>/dev/null
+  done < <(find "$HOME/.local/share" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+}
+
 # --once: write a single fresh snapshot and exit (used for testing / manual
 # refresh). Without it, tick forever.
 if [ "${1:-}" = "--once" ]; then
@@ -192,6 +205,7 @@ if [ "${1:-}" = "--once" ]; then
   exit 0
 fi
 
+purge_outbox
 echo "omasteam-bar-daemon: writing $STATE (tick 1s)" >&2
 while true; do
   write_state

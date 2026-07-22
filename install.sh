@@ -459,9 +459,23 @@ install_bar() {
   # here when run outside the repo checkout).
   install -m755 "$SCRIPT_DIR/bin/omasteam-bar-daemon" "$share/omasteam-bar-daemon"
 
-  # Autostart at login (KDE Wayland). Exec resolves via ~/.local/bin on PATH.
+  # Autostart at login (KDE Wayland). Exec MUST be an absolute path: the
+  # graphical session's PATH does not include ~/.local/bin (that's added by
+  # .bashrc, which autostart never sources), so a bare "omasteam-bar" is not
+  # found and nothing launches — notably after a Game Mode → Desktop switch,
+  # which restarts the Plasma session.
   mkdir -p ~/.config/autostart
-  install -m644 "$ART/bar/omasteam-bar.desktop" ~/.config/autostart/omasteam-bar.desktop
+  cat > ~/.config/autostart/omasteam-bar.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=omasteam bar
+Comment=Omarchy-style top bar (QML layer-shell) for SteamOS + KDE
+Exec=$HOME/.local/bin/omasteam-bar
+Terminal=false
+OnlyShowIn=KDE;
+X-KDE-autostart-phase=2
+NoDisplay=true
+EOF
   ok "bar + daemon installed; autostarts at next login"
 
   # Start it now so the change is visible without a relogin. setsid fully
