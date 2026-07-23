@@ -24,11 +24,11 @@ Window {
 
     LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
     LayerShell.Window.layer: LayerShell.Window.LayerOverlay
-    // exclusionZone -1 = ignore other surfaces' exclusive zones (the bar's), so
-    // the scrim fills the WHOLE output including behind the bar. (Omarchy's menu
-    // does the same via exclusionMode: ExclusionMode.Ignore.) Default 0 would let
-    // the bar's reserved strip shrink this window, leaving the top undimmed.
-    LayerShell.Window.exclusionZone: -1
+    // Do NOT set exclusionZone here. Anchored to all four edges, the surface
+    // already fills the entire output (verified: the scrim covers edge-to-edge,
+    // including behind the bar). Setting exclusionZone: -1 under org.kde.layershell
+    // + qmlscene instead collapses the window to a small centered box that leaves
+    // an undimmed margin all around — the opposite of what we want.
     // Grab the keyboard while the menu is up (the bar uses None; the menu is modal).
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityExclusive
 
