@@ -117,7 +117,9 @@ Window {
         id: panel
         anchors.centerIn: parent
         width: 460
-        height: header.height + list.contentHeightClamped + 24
+        // 24 = the Column's top+bottom margins; inner.spacing sits between the
+        // header and the list (without it the list overflowed the bottom margin).
+        height: header.height + inner.spacing + list.contentHeightClamped + 24
         radius: 14
         color: win.cBg
         border.color: win.alpha(win.cFg, 0.12)
