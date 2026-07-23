@@ -21,9 +21,13 @@ done
 
 DAEMON="$HERE/omasteam-bar-daemon"
 [ -x "$DAEMON" ] || DAEMON="$HOME/.local/share/omasteam/bar/omasteam-bar-daemon"
+[ -x "$DAEMON" ] || { echo "omasteam-bar: cannot find omasteam-bar-daemon" >&2; exit 1; }
 
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar"
 STATE="$STATE_DIR/state.json"
+# The daemon also mkdirs this, but the rendered QML below lands here too — do
+# not depend on the daemon having won that race (or having started at all).
+mkdir -p "$STATE_DIR"
 
 QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
 [ -n "$QMLSCENE" ] || { echo "omasteam-bar: qmlscene not found" >&2; exit 1; }
