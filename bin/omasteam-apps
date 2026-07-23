@@ -134,7 +134,7 @@ drain_outbox() { # $1 = 1 to emit, 0 to purge silently
         < <(sqlite3 "$db" "SELECT cmd FROM apps_outbox ORDER BY id;" 2>/dev/null)
     fi
     sqlite3 "$db" "DELETE FROM apps_outbox;" 2>/dev/null
-  done < <(find "$HOME/.local/share" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+  done < <(find "$HOME/.local/share/QtProject" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
 }
 
 # ---- action dispatch -------------------------------------------------------

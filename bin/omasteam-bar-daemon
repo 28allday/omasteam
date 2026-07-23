@@ -178,10 +178,14 @@ run_cmd() {
 # daemon drains every tick. No FIFO: a read-only FIFO open blocks until a writer
 # appears, and there is nothing the bar could write to it anyway.
 #
-# QML LocalStorage lands the DB under a Qt-version-specific path
-# (~/.local/share/QtProject/QtQmlViewer/QML/OfflineStorage/Databases/), so we
+# QML LocalStorage lands the DB under a Qt-runtime-specific path inside
+# ~/.local/share/QtProject (qmlscene6 = QtProject/QtQmlViewer/QML/...), so we
 # locate it with `find` rather than a fixed glob and match by having an 'outbox'
 # table (the DB filename is an MD5 of the db name, not human-readable).
+# Scope the find to QtProject: this runs EVERY tick, and ~/.local/share also
+# holds the Steam library (tens of thousands of files) — crawling it once a
+# second is real CPU/battery on a handheld.
+OUTBOX_ROOT="$HOME/.local/share/QtProject"
 drain_outbox() {
   command -v sqlite3 >/dev/null || return
   local db c
@@ -192,7 +196,7 @@ drain_outbox() {
       [ -n "$c" ] && run_cmd "$c"
     done < <(sqlite3 "$db" "SELECT cmd FROM outbox ORDER BY id;" 2>/dev/null)
     sqlite3 "$db" "DELETE FROM outbox;" 2>/dev/null
-  done < <(find "$HOME/.local/share" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+  done < <(find "$OUTBOX_ROOT" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
 }
 
 # Discard (don't run) anything left in the outbox — clicks queued before this
@@ -205,7 +209,7 @@ purge_outbox() {
   while IFS= read -r db; do
     [ -f "$db" ] || continue
     sqlite3 "$db" "DELETE FROM outbox;" 2>/dev/null
-  done < <(find "$HOME/.local/share" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+  done < <(find "$OUTBOX_ROOT" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
 }
 
 # --once: write a single fresh snapshot and exit (used for testing / manual
