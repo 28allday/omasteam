@@ -170,27 +170,21 @@ Window {
     }
 
     // ---- surface -------------------------------------------------------------
-    // Transparent full-screen backdrop (Omarchy walker-style: the panel floats
-    // over the LIVE desktop, no dimming). Still catches a click anywhere outside
-    // the panel to dismiss — a transparent fill receives input all the same.
+    // Full-window scrim, exactly like Omarchy quattro's menu: its Menu.qml paints
+    // a `color: root.scrim` rectangle behind the card, where scrim = the theme
+    // background at scrim-alpha 0.5 (Color.qml + shell.toml). Two jobs:
+    //   1. matches the reference look — Omarchy dims the desktop ~50% behind the
+    //      menu (it is NOT an undimmed float);
+    //   2. this painted full-window node forces a full repaint every frame, which
+    //      is what stops a shrinking panel from ghosting. With a fully transparent
+    //      backdrop, QtQuick's partial (damaged-region) updates leave the strip a
+    //      shrinking/back-navigating panel vacates un-cleared, so old rows linger.
     Rectangle {
         anchors.fill: parent
-        color: "transparent"
-        MouseArea { anchors.fill: parent; onClicked: Qt.quit() }
+        color: win.alpha(win.cBg, 0.5)
     }
-
-    // Ghost-buster. On a transparent layer-shell surface QtQuick does partial
-    // (damaged-region) updates, so when the centered panel SHRINKS — stepping
-    // back to a shorter level, or filtering — the vacated strip isn't repainted
-    // and the old rows linger as a ghost. (The old opaque backdrop hid this by
-    // forcing a full repaint every frame.) This imperceptible full-window fill
-    // has an alpha that tracks the panel height, so any resize re-dirties the
-    // whole surface and forces the vacated area to clear. Alpha stays ~0.001-
-    // 0.007 (invisible over the desktop) but non-zero so it's never optimised out.
-    Rectangle {
-        anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, ((panel.height % 7) + 1) / 1000)
-    }
+    // Click anywhere outside the panel dismisses (the panel absorbs its own clicks).
+    MouseArea { anchors.fill: parent; onClicked: Qt.quit() }
 
     Rectangle {
         id: panel
