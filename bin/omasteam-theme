@@ -32,6 +32,12 @@ COLORS=""
 val(){ grep -iE "^[[:space:]]*$1[[:space:]]*=" "$COLORS" 2>/dev/null | head -1 \
        | grep -oiE '[0-9A-Fa-f]{6}' | head -1; }   # only ever emit a clean 6-hex value
 rgb(){ local h="${1:-}"; [ "${#h}" -eq 6 ] || h="000000"; printf '%d,%d,%d' "0x${h:0:2}" "0x${h:2:2}" "0x${h:4:2}"; }
+# shade HEX DELTA -> "r,g,b" with each channel nudged by DELTA (clamped 0..255).
+# Used to derive alternate-row / inactive shades that stay in the theme's key.
+shade(){ local h="${1:-000000}" d="${2:-0}" r g b; [ "${#h}" -eq 6 ] || h="000000"
+  r=$((0x${h:0:2}+d)); g=$((0x${h:2:2}+d)); b=$((0x${h:4:2}+d))
+  ((r<0))&&r=0; ((r>255))&&r=255; ((g<0))&&g=0; ((g>255))&&g=255; ((b<0))&&b=0; ((b>255))&&b=255
+  printf '%d,%d,%d' "$r" "$g" "$b"; }
 
 # ---- apply to each surface ----------------------------------------------------
 apply_kitty(){
@@ -81,44 +87,77 @@ apply_kde(){
   local dst=~/.local/share/color-schemes/$scheme.colors
   mkdir -p ~/.local/share/color-schemes
   local vbg; vbg=$(val color0); [ -n "$vbg" ] || vbg="$bg"
-  cat > "$dst" <<EOF
-[General]
-Name=$scheme
-ColorScheme=$scheme
+  # Derived / semantic colors so NOTHING falls back to a Breeze default that
+  # clashes with a very dark theme bg (the systemsettings sidebar in particular
+  # uses the Header role — without it, KDE synthesises a much lighter tint).
+  local BG FG AC SF VBG ALT BALT DIMFG NEG NEU POS
+  BG=$(rgb "$bg"); FG=$(rgb "$fg"); AC=$(rgb "$ac"); SF=$(rgb "$sf"); VBG=$(rgb "$vbg")
+  ALT=$(shade "$bg" 8); BALT=$(shade "$vbg" 8); DIMFG=$(shade "$fg" -75)
+  NEG=$(val color1); [ -n "$NEG" ] && NEG=$(rgb "$NEG") || NEG="218,85,85"
+  NEU=$(val color3); [ -n "$NEU" ] && NEU=$(rgb "$NEU") || NEU="217,164,65"
+  POS=$(val color2); [ -n "$POS" ] && POS=$(rgb "$POS") || POS="76,175,80"
 
-[Colors:Window]
-BackgroundNormal=$(rgb "$bg")
-ForegroundNormal=$(rgb "$fg")
+  # Emit one full color set (all roles) so text/links/decorations stay coherent.
+  cset(){ # $1=SetName $2=bgNormal $3=bgAlternate $4=fgNormal
+    cat <<EOF
 
-[Colors:View]
-BackgroundNormal=$(rgb "$bg")
-ForegroundNormal=$(rgb "$fg")
-DecorationFocus=$(rgb "$ac")
-DecorationHover=$(rgb "$ac")
+[Colors:$1]
+BackgroundNormal=$2
+BackgroundAlternate=$3
+ForegroundNormal=$4
+ForegroundInactive=$DIMFG
+ForegroundActive=$AC
+ForegroundLink=$AC
+ForegroundVisited=$AC
+ForegroundNegative=$NEG
+ForegroundNeutral=$NEU
+ForegroundPositive=$POS
+DecorationFocus=$AC
+DecorationHover=$AC
+EOF
+  }
 
-[Colors:Button]
-BackgroundNormal=$(rgb "$vbg")
-ForegroundNormal=$(rgb "$fg")
+  {
+    printf '[General]\nName=%s\nColorScheme=%s\n' "$scheme" "$scheme"
+    cset Window        "$BG"  "$ALT"  "$FG"
+    cset View          "$BG"  "$ALT"  "$FG"
+    cset Button        "$VBG" "$BALT" "$FG"
+    cset Tooltip       "$BG"  "$ALT"  "$FG"
+    cset Complementary "$BG"  "$ALT"  "$FG"
+    cset Header        "$BG"  "$ALT"  "$FG"   # <- fixes the systemsettings sidebar
+    cat <<EOF
 
 [Colors:Selection]
-BackgroundNormal=$(rgb "$ac")
-ForegroundNormal=$(rgb "$sf")
+BackgroundNormal=$AC
+BackgroundAlternate=$AC
+ForegroundNormal=$SF
+ForegroundInactive=$SF
+ForegroundActive=$SF
+ForegroundLink=$SF
+ForegroundVisited=$SF
+ForegroundNegative=$NEG
+ForegroundNeutral=$NEU
+ForegroundPositive=$POS
+DecorationFocus=$AC
+DecorationHover=$AC
 
-[Colors:Tooltip]
-BackgroundNormal=$(rgb "$bg")
-ForegroundNormal=$(rgb "$fg")
-
-[Colors:Complementary]
-BackgroundNormal=$(rgb "$bg")
-ForegroundNormal=$(rgb "$fg")
+[Colors:Header][Inactive]
+BackgroundNormal=$BG
+BackgroundAlternate=$ALT
+ForegroundNormal=$FG
+ForegroundInactive=$DIMFG
+ForegroundActive=$AC
 
 [WM]
-activeBackground=$(rgb "$bg")
-activeForeground=$(rgb "$fg")
-activeBlend=$(rgb "$ac")
-inactiveBackground=$(rgb "$bg")
-inactiveForeground=$(rgb "$fg")
+activeBackground=$BG
+activeForeground=$FG
+activeBlend=$AC
+inactiveBackground=$BG
+inactiveForeground=$DIMFG
+inactiveBlend=$BG
 EOF
+  } > "$dst"
+  unset -f cset
   plasma-apply-colorscheme "$scheme" >/dev/null 2>&1 && c_ok "KDE color scheme applied ($scheme)" \
     || c_ok "KDE scheme written ($scheme) — pick it in System Settings if not live"
   # Pin the Plasma accent to the theme accent (so highlights/checkboxes follow)
