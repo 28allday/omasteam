@@ -240,9 +240,15 @@ Window {
     }
     onViewChanged: selectedIndex = 0
 
+    // Clear the query through the TextInput (QML ids are file-scoped), not by
+    // assigning win.filter directly: input.text is the single source of the
+    // filter (onTextChanged), and writing filter alone leaves the old query
+    // visible in the box — the next keystroke would re-apply the whole stale
+    // string to the new level.
+    function clearQuery() { input.text = "" }
     function openBranch(node) {
         stack = stack.concat([{ title: node.label, items: node.children }])
-        filter = ""
+        clearQuery()
     }
     function activate(node) {
         if (!node) return
@@ -255,7 +261,7 @@ Window {
         activate(view[Math.max(0, Math.min(selectedIndex, view.length - 1))])
     }
     function back() {
-        if (filter.length > 0) { filter = ""; return }
+        if (filter.length > 0) { clearQuery(); return }
         if (stack.length > 1) { stack = stack.slice(0, stack.length - 1); return }
         Qt.quit()
     }
