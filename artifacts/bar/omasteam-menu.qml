@@ -170,10 +170,12 @@ Window {
     }
 
     // ---- surface -------------------------------------------------------------
-    // Dimmed backdrop; a click anywhere outside the panel dismisses.
+    // Transparent full-screen backdrop (Omarchy walker-style: the panel floats
+    // over the LIVE desktop, no dimming). Still catches a click anywhere outside
+    // the panel to dismiss — a transparent fill receives input all the same.
     Rectangle {
         anchors.fill: parent
-        color: win.alpha(win.cBg, 0.55)
+        color: "transparent"
         MouseArea { anchors.fill: parent; onClicked: Qt.quit() }
     }
 
