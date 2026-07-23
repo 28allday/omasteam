@@ -60,11 +60,18 @@ Window {
     readonly property string icoGaming: ""   // Steam glyph — Return to Gaming Mode
 
     // ---- state polling ---------------------------------------------------
+    // Same no-op guard as the menu: only reassign win.st when state.json
+    // actually changed. Reassigning identical state every 400ms re-dirties
+    // every binding in the bar for nothing — the surface is opaque so it can't
+    // accumulate like the menu scrim, but the repaints are pure waste.
+    property string _lastRaw: ""
     function poll() {
         if (!statePath) return
         var xhr = new XMLHttpRequest()
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE && xhr.responseText) {
+                if (xhr.responseText === win._lastRaw) return
+                win._lastRaw = xhr.responseText
                 try { win.st = JSON.parse(xhr.responseText) } catch (e) {}
             }
         }
