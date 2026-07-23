@@ -29,8 +29,12 @@ die(){ c_err "$*"; exit 1; }
 # ---- palette parsing ----------------------------------------------------------
 # val KEY  -> 6 hex digits (no #), from the theme's colors.toml
 COLORS=""
+# The `|| true` is load-bearing: under `set -euo pipefail` a missing key makes
+# the grep pipeline non-zero, and the bare `x=$(val key)` assignments below
+# would silently kill the whole script mid-apply for any theme that doesn't
+# define every queried key (accent, cursor, colorN, …).
 val(){ grep -iE "^[[:space:]]*$1[[:space:]]*=" "$COLORS" 2>/dev/null | head -1 \
-       | grep -oiE '[0-9A-Fa-f]{6}' | head -1; }   # only ever emit a clean 6-hex value
+       | grep -oiE '[0-9A-Fa-f]{6}' | head -1 || true; }   # only ever emit a clean 6-hex value
 rgb(){ local h="${1:-}"; [ "${#h}" -eq 6 ] || h="000000"; printf '%d,%d,%d' "0x${h:0:2}" "0x${h:2:2}" "0x${h:4:2}"; }
 # shade HEX DELTA -> "r,g,b" with each channel nudged by DELTA (clamped 0..255).
 # Used to derive alternate-row / inactive shades that stay in the theme's key.
