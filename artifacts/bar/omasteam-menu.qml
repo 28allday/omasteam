@@ -71,8 +71,11 @@ Window {
         xhr.open("GET", "file://" + statePath)
         xhr.send()
     }
+    // Poll ONCE at open — the menu is transient and the theme palette can't change
+    // while it's up (picking a theme closes the menu). A repeating timer would
+    // re-read state.json every tick; even guarded, that's a periodic repaint risk
+    // on this accumulation-prone transparent surface, and it's simply not needed.
     Component.onCompleted: poll()
-    Timer { interval: 500; running: true; repeat: true; onTriggered: win.poll() }
 
     // ---- Nerd Font (FontAwesome) glyphs --------------------------------------
     // Kept as codepoints so this source stays ASCII-clean and unambiguous.
@@ -259,6 +262,10 @@ Window {
                             clip: true
                             onTextChanged: win.filter = text
                             Component.onCompleted: forceActiveFocus()
+                            // Static (non-blinking) cursor. A blinking cursor repaints
+                            // ~1×/sec, and on this transparent layer-shell surface any
+                            // repaint re-blends the scrim and darkens it over time.
+                            cursorDelegate: Rectangle { width: 2; color: win.cAccent }
 
                             // Placeholder / breadcrumb hint when empty.
                             Text {
