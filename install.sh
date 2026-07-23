@@ -15,7 +15,8 @@
 #                         layer-shell top bar (workspaces, clock, volume,
 #                         network, battery, Return-to-Gaming). Removes the stock
 #                         Plasma panel (backed up first) so the bar owns the
-#                         desktop, Omarchy-style.
+#                         desktop, Omarchy-style. Also installs the omasteam
+#                         system menu (Omarchy-style, Meta+Alt+Space).
 #     --theme <git-url>   Install the omasteam-theme switcher, then apply this
 #                         Omarchy theme repo (e.g. an omarchy-*-theme git URL)
 #     --no-keybindings    Skip the Omarchy keybinding mapping
@@ -458,6 +459,48 @@ install_bar() {
   # Keep a copy of the QML beside the installed scripts too (the launcher looks
   # here when run outside the repo checkout).
   install -m755 "$SCRIPT_DIR/bin/omasteam-bar-daemon" "$share/omasteam-bar-daemon"
+
+  # ---- system menu (Omarchy-style, Meta+Alt+Space) ----
+  # Same QML-front / bash-back split as the bar: a layer-shell overlay driven by
+  # the omasteam-menu launcher, which also dispatches the chosen action.
+  install -m644 "$ART/bar/omasteam-menu.qml" "$share/omasteam-menu.qml"
+  install -m755 "$SCRIPT_DIR/bin/omasteam-menu" "$HOME/.local/bin/omasteam-menu"
+  # Launcher target for the KDE global shortcut (absolute Exec, like the bar's
+  # autostart — the session PATH has no ~/.local/bin).
+  cat > ~/.local/share/applications/omasteam-menu.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=omasteam Menu
+Comment=Omarchy-style system menu (Meta+Alt+Space)
+Exec=$HOME/.local/bin/omasteam-menu
+Icon=applications-system
+Terminal=false
+Categories=System;
+NoDisplay=true
+EOF
+  update-desktop-database ~/.local/share/applications 2>/dev/null || true
+  # Bind Meta+Alt+Space -> the menu launcher. A brand-new .desktop can't bind
+  # live (this session's ksycoca predates it), so write the file entry (registers
+  # at next login) AND try live; the omasteam-rebind autostart re-asserts the grab.
+  # Keycode 402653216 = Meta(0x10000000)+Alt(0x08000000)+Space(0x20).
+  kwriteconfig6 --file kglobalshortcutsrc --group services \
+    --group omasteam-menu.desktop --key _launch "Meta+Alt+Space,none,omasteam Menu"
+  if have dbus-send; then
+    # doRegister CREATES the launcher's kglobalaccel component so the grab
+    # attaches in THIS session. Without it, a brand-new .desktop's shortcut only
+    # binds after the next login (kglobalaccel, hosted in kwin, reads the
+    # [services] file just at session start). setForeignShortcut then assigns the
+    # key. kbuildsycoca6 first so the freshly-written .desktop is resolvable.
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+    dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
+      org.kde.KGlobalAccel.doRegister \
+      array:string:"omasteam-menu.desktop","_launch","omasteam Menu","omasteam Menu" >/dev/null 2>&1 || true
+    dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
+      org.kde.KGlobalAccel.setForeignShortcut \
+      array:string:"omasteam-menu.desktop","_launch","omasteam Menu","omasteam Menu" \
+      array:int32:402653216 >/dev/null 2>&1 || true
+  fi
+  ok "system menu installed; Meta+Alt+Space bound (live + persisted)"
 
   # Autostart at login (KDE Wayland). Exec MUST be an absolute path: the
   # graphical session's PATH does not include ~/.local/bin (that's added by

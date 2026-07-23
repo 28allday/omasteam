@@ -12,6 +12,10 @@
 
 set -uo pipefail
 
+# The graphical session PATH omits ~/.local/bin (a .bashrc addition autostart
+# never sources), so omasteam-menu / omasteam-theme wouldn't resolve. Prepend it.
+export PATH="$HOME/.local/bin:$PATH"
+
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar"
 STATE="$STATE_DIR/state.json"
 CMD_FIFO="$STATE_DIR/cmd.fifo"
@@ -145,7 +149,10 @@ run_cmd() {
               [ -n "$id" ] && qdbus6 "$KWIN" /VirtualDesktopManager \
                 org.freedesktop.DBus.Properties.Set org.kde.KWin.VirtualDesktopManager \
                 current "$id" 2>/dev/null ;;
-    menu)     command -v krunner >/dev/null && krunner 2>/dev/null & ;;
+    menu)     # The bar's menu button opens the omasteam system menu (Meta+Alt+
+              # Space); fall back to KRunner if it isn't installed.
+              if command -v omasteam-menu >/dev/null; then omasteam-menu 2>/dev/null &
+              elif command -v krunner >/dev/null; then krunner 2>/dev/null & fi ;;
     power)    qdbus6 org.kde.LogoutPrompt /LogoutPrompt promptLogout 2>/dev/null \
                 || qdbus6 org.kde.ksmserver /KSMServer logout 1 0 3 2>/dev/null & ;;
     return-to-gaming)

@@ -1,0 +1,146 @@
+#!/bin/bash
+# omasteam-menu — Omarchy-style system menu for SteamOS + KDE (Meta+Alt+Space).
+#
+# Pure userland: SteamOS's stock Qt6 + org.kde.layershell, run by qmlscene. This
+# script is BOTH the launcher and the backend/dispatcher — plain QML can't spawn
+# processes, so the overlay pushes a leaf action-id to a SQLite outbox and this
+# script (which blocks until the overlay closes) runs the real command.
+#
+# Meta+Alt+Space toggles: launching again while a menu is up closes it.
+#
+# Usage:  omasteam-menu           show the menu (toggle), then run the choice
+#         omasteam-menu --print   show the menu, print the chosen id, don't run
+set -uo pipefail
+
+# The graphical session's PATH doesn't include ~/.local/bin (that's a .bashrc
+# addition; a KDE global shortcut never sources it). omasteam-theme / omasteam-bar
+# live there, so make sure we can find them.
+export PATH="$HOME/.local/bin:$PATH"
+
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+QML=""
+for cand in \
+  "$HERE/../artifacts/bar/omasteam-menu.qml" \
+  "$HOME/.local/share/omasteam/bar/omasteam-menu.qml"; do
+  [ -f "$cand" ] && { QML="$cand"; break; }
+done
+[ -n "$QML" ] || { echo "omasteam-menu: cannot find omasteam-menu.qml" >&2; exit 1; }
+
+QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
+[ -n "$QMLSCENE" ] || { echo "omasteam-menu: qmlscene not found" >&2; exit 1; }
+
+# Palette comes from the bar daemon's state.json (menu reuses the live theme).
+BAR_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar/state.json"
+MENU_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-menu"
+mkdir -p "$MENU_DIR"
+RENDERED="$MENU_DIR/omasteam-menu.rendered.qml"
+THEMES_DIR="$HOME/.config/omasteam/themes"
+
+MODE=run
+[ "${1:-}" = "--print" ] && MODE=print
+
+# ---- single-instance toggle ------------------------------------------------
+# The running overlay is `qmlscene .../omasteam-menu.rendered.qml`. Our own
+# command line is `.../omasteam-menu` (no "rendered.qml"), so pkill won't hit us.
+RENDERED_PAT="omasteam-menu.rendered.qml"
+if [ "$MODE" = run ] && pgrep -f "$RENDERED_PAT" >/dev/null 2>&1; then
+  pkill -f "$RENDERED_PAT" 2>/dev/null
+  exit 0
+fi
+
+# ---- dynamic Style > Themes level ------------------------------------------
+themes_json() {
+  local first=1 out="[" name d
+  [ -d "$THEMES_DIR" ] || { printf '[]'; return; }
+  for d in "$THEMES_DIR"/*/; do
+    [ -d "$d" ] || continue
+    name="$(basename "$d")"
+    name="${name//\\/\\\\}"; name="${name//\"/\\\"}"   # JSON-escape
+    if [ $first -eq 1 ]; then first=0; else out+=","; fi
+    out+="\"$name\""
+  done
+  out+="]"
+  printf '%s' "$out"
+}
+THEMESJSON="$(themes_json)"
+CURRENT_THEME="$(cat "$THEMES_DIR/.current" 2>/dev/null || true)"
+
+# ---- render self-contained temp QML (qmlscene can't take argv/env) ----------
+# `#` delimiter: the state path has slashes; none of the values contain `#`.
+sed -e "s#@@STATE@@#$BAR_STATE#g" \
+    -e "s#@@THEMES@@#$THEMESJSON#g" \
+    -e "s#@@CURRENT_THEME@@#$CURRENT_THEME#g" \
+    "$QML" > "$RENDERED"
+
+# ---- SQLite outbox (table `menu_outbox`; the bar daemon only drains `outbox`) -
+# read the chosen id(s); ACTION=1 also deletes and echoes them, ACTION=0 just
+# clears (drop anything stale from a crashed session before we show the menu).
+drain_outbox() { # $1 = 1 to emit, 0 to purge silently
+  command -v sqlite3 >/dev/null || return
+  local db c emit="$1"
+  while IFS= read -r db; do
+    [ -f "$db" ] || continue
+    sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='menu_outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
+    if [ "$emit" = 1 ]; then
+      while IFS= read -r c; do [ -n "$c" ] && printf '%s\n' "$c"; done \
+        < <(sqlite3 "$db" "SELECT cmd FROM menu_outbox ORDER BY id;" 2>/dev/null)
+    fi
+    sqlite3 "$db" "DELETE FROM menu_outbox;" 2>/dev/null
+  done < <(find "$HOME/.local/share" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+}
+
+# ---- action dispatch -------------------------------------------------------
+# NOTE: `logout` / `return-to-gaming` mirror omasteam-bar-daemon's run_cmd. A
+# future refactor could share a bin/omasteam-actions lib between the two.
+launch() { setsid "$@" >/dev/null 2>&1 </dev/null & }
+run_menu_cmd() {
+  local cmd="$1" name
+  case "$cmd" in
+    apps)           launch krunner ;;
+    # spectacle background captures save to the default screenshots location.
+    shot-region)    launch spectacle -r -b -n ;;
+    shot-window)    launch spectacle -a -b -n ;;
+    shot-full)      launch spectacle -f -b -n ;;
+    record)         launch spectacle -R region ;;
+    wallpaper-next) omasteam-theme wallpaper next 2>/dev/null ;;
+    theme-set:*)    name="${cmd#theme-set:}"
+                    [ -n "$name" ] && omasteam-theme set "$name" 2>/dev/null ;;   # bar re-themes on its next tick
+    wifi)           launch plasmawindowed org.kde.plasma.networkmanagement ;;
+    bluetooth)      launch kcmshell6 kcm_bluetooth ;;
+    audio)          launch kcmshell6 kcm_pulseaudio ;;
+    display)        launch kcmshell6 kcm_kscreen ;;
+    nightlight)     launch kcmshell6 kcm_nightlight ;;
+    lock)           loginctl lock-session 2>/dev/null \
+                      || qdbus6 org.kde.screensaver /ScreenSaver Lock 2>/dev/null ;;
+    suspend)        systemctl suspend ;;
+    logout)         qdbus6 org.kde.LogoutPrompt /LogoutPrompt promptLogout 2>/dev/null \
+                      || qdbus6 org.kde.ksmserver /KSMServer logout 1 0 3 2>/dev/null ;;
+    restart)        qdbus6 org.kde.LogoutPrompt /LogoutPrompt promptReboot 2>/dev/null \
+                      || systemctl reboot ;;
+    shutdown)       qdbus6 org.kde.LogoutPrompt /LogoutPrompt promptShutDown 2>/dev/null \
+                      || systemctl poweroff ;;
+    return-to-gaming)
+                    if [ "$(steamosctl get-default-login-mode 2>/dev/null)" = desktop ]; then
+                      steamosctl switch-to-game-mode 2>/dev/null &
+                    else
+                      qdbus6 org.kde.Shutdown /Shutdown org.kde.Shutdown.logout 2>/dev/null &
+                    fi ;;
+    "" ) : ;;   # dismissed / no-op leaf
+    *  ) echo "omasteam-menu: unknown action '$cmd'" >&2 ;;
+  esac
+}
+
+# ---- run --------------------------------------------------------------------
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
+export QT_WAYLAND_SHELL_INTEGRATION=layer-shell
+# QML XMLHttpRequest refuses local file:// reads (state.json palette) without this.
+export QML_XHR_ALLOW_FILE_READ=1
+
+drain_outbox 0                     # purge any stale choice first
+"$QMLSCENE" "$RENDERED" >/dev/null 2>&1   # blocks until the overlay closes
+
+# Dispatch whatever was chosen (usually one id; nothing if dismissed).
+while IFS= read -r choice; do
+  [ -z "$choice" ] && continue
+  if [ "$MODE" = print ]; then printf '%s\n' "$choice"; else run_menu_cmd "$choice"; fi
+done < <(drain_outbox 1)
