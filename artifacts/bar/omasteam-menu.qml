@@ -186,7 +186,7 @@ Window {
     //      shrinking/back-navigating panel vacates un-cleared, so old rows linger.
     Rectangle {
         anchors.fill: parent
-        color: win.alpha(win.cBg, 0.15)
+        color: win.alpha(win.cBg, 0.4)
     }
     // Click anywhere outside the panel dismisses (the panel absorbs its own clicks).
     MouseArea { anchors.fill: parent; onClicked: Qt.quit() }
