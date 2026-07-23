@@ -21,14 +21,20 @@ Window {
     id: win
     visible: true
     color: "transparent"
+    // MUST set an explicit full-screen size. Unlike Quickshell's PanelWindow
+    // (what Omarchy uses), a plain qmlscene Window with org.kde.layershell does
+    // NOT derive its size from the all-edge anchors — with no width/height it
+    // falls back to a default (~3/4 screen) and renders as a centered box, so the
+    // scrim leaves a transparent margin all around. Pinning Screen.width/height
+    // makes the layer surface cover the whole output. (Verified with a bordered
+    // probe: the green frame sat on all four screen edges only once these were set.)
+    width: Screen.width
+    height: Screen.height
 
     LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
     LayerShell.Window.layer: LayerShell.Window.LayerOverlay
-    // Do NOT set exclusionZone here. Anchored to all four edges, the surface
-    // already fills the entire output (verified: the scrim covers edge-to-edge,
-    // including behind the bar). Setting exclusionZone: -1 under org.kde.layershell
-    // + qmlscene instead collapses the window to a small centered box that leaves
-    // an undimmed margin all around — the opposite of what we want.
+    // Don't set exclusionZone: -1 — under org.kde.layershell + qmlscene it makes
+    // the box problem worse, not better. The explicit size above is what fills.
     // Grab the keyboard while the menu is up (the bar uses None; the menu is modal).
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityExclusive
 
