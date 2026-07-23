@@ -179,6 +179,19 @@ Window {
         MouseArea { anchors.fill: parent; onClicked: Qt.quit() }
     }
 
+    // Ghost-buster. On a transparent layer-shell surface QtQuick does partial
+    // (damaged-region) updates, so when the centered panel SHRINKS — stepping
+    // back to a shorter level, or filtering — the vacated strip isn't repainted
+    // and the old rows linger as a ghost. (The old opaque backdrop hid this by
+    // forcing a full repaint every frame.) This imperceptible full-window fill
+    // has an alpha that tracks the panel height, so any resize re-dirties the
+    // whole surface and forces the vacated area to clear. Alpha stays ~0.001-
+    // 0.007 (invisible over the desktop) but non-zero so it's never optimised out.
+    Rectangle {
+        anchors.fill: parent
+        color: Qt.rgba(0, 0, 0, ((panel.height % 7) + 1) / 1000)
+    }
+
     Rectangle {
         id: panel
         anchors.centerIn: parent
