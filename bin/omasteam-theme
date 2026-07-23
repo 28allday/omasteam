@@ -167,6 +167,39 @@ EOF
   fi
 }
 
+# ---- KDE UI font -------------------------------------------------------------
+# Make every KDE/Qt app (settings panels included) use the same JetBrains Mono
+# the bar and menu use, so the whole system reads as one style. Applied as part
+# of theming so it's re-asserted on every switch. A theme may override the family
+# by dropping a single family name in <theme>/ui-font.
+apply_fonts(){
+  local dir="${1:-}"
+  command -v kwriteconfig6 >/dev/null || { c_warn "fonts: kwriteconfig6 missing — skipped"; return; }
+  local ui="JetBrainsMono Nerd Font" mono="JetBrainsMono Nerd Font Mono"
+  [ -n "$dir" ] && [ -s "$dir/ui-font" ] && ui="$(head -1 "$dir/ui-font")"
+  # Don't set a family that isn't installed (Qt would silently fall back).
+  # NB: use grep -c (reads the whole stream), NOT grep -q — under `set -o
+  # pipefail`, grep -q exits early, fc-list takes SIGPIPE, and the pipeline
+  # reports failure, which would wrongly flag the font as missing.
+  if command -v fc-list >/dev/null; then
+    local _cnt; _cnt=$(fc-list | grep -ciF "$ui" || true)
+    [ "${_cnt:-0}" -gt 0 ] || { c_warn "fonts: '$ui' not installed — KDE UI font left as-is"; return; }
+  fi
+  # Qt font string: Family,pointSize,-1,styleHint,weight,italic,underline,... .
+  local k
+  for k in font menuFont toolBarFont; do
+    kwriteconfig6 --file kdeglobals --group General --key "$k" "$ui,11,-1,5,50,0,0,0,0,0"
+  done
+  kwriteconfig6 --file kdeglobals --group General --key smallestReadableFont "$ui,9,-1,5,50,0,0,0,0,0"
+  kwriteconfig6 --file kdeglobals --group General --key fixed "$mono,11,-1,5,50,0,0,0,0,0"
+  kwriteconfig6 --file kdeglobals --group WM --key activeFont "$ui,11,-1,5,50,0,0,0,0,0"
+  # Nudge already-open Qt/KDE apps to re-read fonts (FontChanged=0); new windows
+  # pick it up regardless.
+  command -v dbus-send >/dev/null && dbus-send --session --type=signal \
+    /KGlobalSettings org.kde.KGlobalSettings.notifyChange int32:0 int32:0 >/dev/null 2>&1
+  c_ok "KDE UI font set ($ui)"
+}
+
 apply_starship(){
   local ac; ac=$(val accent); [ -n "$ac" ] || ac=$(val selection_background); [ -n "$ac" ] || ac=$(val color4)
   local fg; fg=$(val foreground)
@@ -285,6 +318,7 @@ set_theme(){
   c_info "Applying theme: $name"
   apply_kitty "$name" "$dir"
   apply_kde   "$name"
+  apply_fonts "$dir"
   apply_starship
   apply_fzf
   apply_btop  "$name" "$dir"
