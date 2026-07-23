@@ -97,19 +97,30 @@ apps_json() {
 APPSJSON="$(apps_json)"
 
 # ---- render self-contained temp QML (qmlscene can't take argv/env) ----------
-# `@` sentinel replaced via a temp file to avoid sed choking on the JSON's / and &.
-python_free_render() {
-  # Use awk for a literal (no-regex) replace of the two placeholders.
-  awk -v state="$BAR_STATE" -v apps="$APPSJSON" '
-    { line=$0
-      gsub(/@@STATE@@/, state, line)
-      # @@APPS@@ replaced literally: index/substr avoids gsub treating & specially.
-      p=index(line,"@@APPS@@")
-      while (p>0) { line=substr(line,1,p-1) apps substr(line,p+8); p=index(line,"@@APPS@@") }
+# Values travel via the environment, NOT `awk -v`: -v assignments get escape-
+# sequence processing, which turned the JSON's \" back into a bare " (one
+# quote in a .desktop Name = syntax error = the launcher never opens). ENVIRON
+# is read verbatim. subst() rebuilds the line past each replacement so a value
+# containing the placeholder text can't loop.
+render() {
+  QML_STATE="$BAR_STATE" QML_APPS="$APPSJSON" awk '
+    function subst(line, ph, v,    out, p) {
+      out = ""
+      p = index(line, ph)
+      while (p > 0) {
+        out = out substr(line, 1, p - 1) v
+        line = substr(line, p + length(ph))
+        p = index(line, ph)
+      }
+      return out line
+    }
+    { line = $0
+      line = subst(line, "@@STATE@@", ENVIRON["QML_STATE"])
+      line = subst(line, "@@APPS@@",  ENVIRON["QML_APPS"])
       print line
     }' "$QML" > "$RENDERED"
 }
-python_free_render
+render
 
 # ---- SQLite outbox (table `apps_outbox`) -----------------------------------
 drain_outbox() { # $1 = 1 to emit, 0 to purge silently

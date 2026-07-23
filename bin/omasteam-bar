@@ -64,7 +64,20 @@ export QML_XHR_ALLOW_FILE_READ=1
 
 # Render the state path into a self-contained temp QML (qmlscene can't take
 # argv/env reliably). The QML imports only Qt modules, so a temp copy is safe.
+# Literal replacement via awk + ENVIRON (matches omasteam-menu/apps): sed would
+# mangle `&`/`\` or a `|` in the path.
 RENDERED="$STATE_DIR/omasteam-bar.rendered.qml"
-sed "s|@@STATE@@|$STATE|g" "$QML" > "$RENDERED"
+QML_STATE="$STATE" awk '
+  function subst(line, ph, v,    out, p) {
+    out = ""
+    p = index(line, ph)
+    while (p > 0) {
+      out = out substr(line, 1, p - 1) v
+      line = substr(line, p + length(ph))
+      p = index(line, ph)
+    }
+    return out line
+  }
+  { print subst($0, "@@STATE@@", ENVIRON["QML_STATE"]) }' "$QML" > "$RENDERED"
 
 exec "$QMLSCENE" "$RENDERED"

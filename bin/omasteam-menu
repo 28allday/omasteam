@@ -64,13 +64,33 @@ themes_json() {
 }
 THEMESJSON="$(themes_json)"
 CURRENT_THEME="$(cat "$THEMES_DIR/.current" 2>/dev/null || true)"
+# CURRENT_THEME lands inside a JS string literal — escape it like themes_json does.
+CURRENT_THEME="${CURRENT_THEME//\\/\\\\}"; CURRENT_THEME="${CURRENT_THEME//\"/\\\"}"
 
 # ---- render self-contained temp QML (qmlscene can't take argv/env) ----------
-# `#` delimiter: the state path has slashes; none of the values contain `#`.
-sed -e "s#@@STATE@@#$BAR_STATE#g" \
-    -e "s#@@THEMES@@#$THEMESJSON#g" \
-    -e "s#@@CURRENT_THEME@@#$CURRENT_THEME#g" \
-    "$QML" > "$RENDERED"
+# Literal replacement via awk + ENVIRON (matches omasteam-apps): sed treats
+# `&`/`\` in the replacement specially and its delimiter can collide with a
+# theme name, and `awk -v` escape-processes its values. ENVIRON is verbatim.
+render() {
+  QML_STATE="$BAR_STATE" QML_THEMES="$THEMESJSON" QML_CURRENT="$CURRENT_THEME" awk '
+    function subst(line, ph, v,    out, p) {
+      out = ""
+      p = index(line, ph)
+      while (p > 0) {
+        out = out substr(line, 1, p - 1) v
+        line = substr(line, p + length(ph))
+        p = index(line, ph)
+      }
+      return out line
+    }
+    { line = $0
+      line = subst(line, "@@STATE@@",         ENVIRON["QML_STATE"])
+      line = subst(line, "@@THEMES@@",        ENVIRON["QML_THEMES"])
+      line = subst(line, "@@CURRENT_THEME@@", ENVIRON["QML_CURRENT"])
+      print line
+    }' "$QML" > "$RENDERED"
+}
+render
 
 # ---- SQLite outbox (table `menu_outbox`; the bar daemon only drains `outbox`) -
 # read the chosen id(s); ACTION=1 also deletes and echoes them, ACTION=0 just
