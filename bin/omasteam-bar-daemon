@@ -147,13 +147,17 @@ run_cmd() {
     vol-mute) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
     desktop-*)
               # The bar sends a 1-based position; KWin switches by id, so map it.
+              # Guard the index: a non-number breaks the arithmetic, and 0 would
+              # hit ids[-1] — bash negative indexing = the LAST desktop.
               local n ids id
               n="${1#desktop-}"
-              mapfile -t ids < <(desktop_ids)
-              id="${ids[$((n-1))]:-}"
-              [ -n "$id" ] && qdbus6 "$KWIN" /VirtualDesktopManager \
-                org.freedesktop.DBus.Properties.Set org.kde.KWin.VirtualDesktopManager \
-                current "$id" 2>/dev/null ;;
+              case "$n" in ''|0|*[!0-9]*) : ;; *)
+                mapfile -t ids < <(desktop_ids)
+                id="${ids[$((n-1))]:-}"
+                [ -n "$id" ] && qdbus6 "$KWIN" /VirtualDesktopManager \
+                  org.freedesktop.DBus.Properties.Set org.kde.KWin.VirtualDesktopManager \
+                  current "$id" 2>/dev/null ;;
+              esac ;;
     menu)     # The bar's menu button opens the omasteam system menu (Meta+Alt+
               # Space); fall back to KRunner if it isn't installed.
               if command -v omasteam-menu >/dev/null; then omasteam-menu 2>/dev/null &
@@ -193,14 +197,21 @@ run_cmd() {
 OUTBOX_ROOT="$HOME/.local/share/QtProject"
 drain_outbox() {
   command -v sqlite3 >/dev/null || return
-  local db c
+  local db rowid c last
   while IFS= read -r db; do
     [ -f "$db" ] || continue
     sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
-    while IFS= read -r c; do
+    last=""
+    while IFS='|' read -r rowid c; do
       [ -n "$c" ] && run_cmd "$c"
-    done < <(sqlite3 "$db" "SELECT cmd FROM outbox ORDER BY id;" 2>/dev/null)
-    sqlite3 "$db" "DELETE FROM outbox;" 2>/dev/null
+      last="$rowid"
+    done < <(sqlite3 -cmd '.timeout 200' "$db" "SELECT id, cmd FROM outbox ORDER BY id;" 2>/dev/null)
+    # Delete only the rows we actually ran: a blanket DELETE dropped any click
+    # inserted between the SELECT and it, and if the DELETE lost a lock race
+    # with the bar, every command replayed next tick ('power' replays are very
+    # user-visible). The .timeout keeps a briefly-locked DB from failing either
+    # statement outright.
+    [ -n "$last" ] && sqlite3 -cmd '.timeout 200' "$db" "DELETE FROM outbox WHERE id <= $last;" 2>/dev/null
   done < <(find "$OUTBOX_ROOT" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
 }
 
@@ -226,6 +237,9 @@ if [ "${1:-}" = "--once" ]; then
 fi
 
 purge_outbox
+# Sweep temp snapshots orphaned by a write_state killed between mktemp and mv
+# (the -mmin guard leaves any concurrently-in-flight write alone).
+find "$STATE_DIR" -maxdepth 1 -name 'state.json.*' -mmin +1 -delete 2>/dev/null
 echo "omasteam-bar-daemon: writing $STATE (tick 1s)" >&2
 while true; do
   write_state
