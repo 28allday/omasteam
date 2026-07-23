@@ -51,11 +51,20 @@ Window {
 
     function alpha(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }
 
+    // Only reassign win.st when state.json actually CHANGED. Reassigning it every
+    // tick (even to identical values) re-dirties the palette bindings, which
+    // repaints the full-window scrim — and on this transparent layer-shell surface
+    // a scrim repaint blends over the previous frame instead of replacing it, so
+    // the dim slowly accumulates toward opaque ("the background keeps getting
+    // darker"). Skipping the no-op reassignment keeps the scrim static.
+    property string _lastRaw: ""
     function poll() {
         if (!statePath) return
         var xhr = new XMLHttpRequest()
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE && xhr.responseText) {
+                if (xhr.responseText === win._lastRaw) return
+                win._lastRaw = xhr.responseText
                 try { win.st = JSON.parse(xhr.responseText) } catch (e) {}
             }
         }
