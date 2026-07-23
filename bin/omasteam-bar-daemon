@@ -80,8 +80,13 @@ battery_json() {
 
 network_json() {
   # First connected, non-loopback device wins. type: ethernet|wifi|none
+  # Connection names are user/AP-controlled: nmcli terse mode escapes ':' as
+  # '\:', and a name may contain '"' or '\' — emitted raw, one bad SSID makes
+  # state.json invalid JSON and the bar silently freezes on stale state.
   local line type state conn
   while IFS=: read -r type state conn; do
+    conn="${conn//\\:/:}"                              # undo nmcli's ':' escape
+    conn="${conn//\\/\\\\}"; conn="${conn//\"/\\\"}"   # JSON-escape \ and "
     case "$type" in
       ethernet) [ "$state" = "connected" ] && { printf '"net":{"type":"ethernet","name":"%s"}' "${conn:-Wired}"; return; } ;;
       wifi)     [ "$state" = "connected" ] && { printf '"net":{"type":"wifi","name":"%s"}' "${conn:-WiFi}"; return; } ;;
