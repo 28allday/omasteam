@@ -43,7 +43,10 @@ WITH_BAR=0
 THEME_URL=""
 
 KITTY_VERSION_PIN=""          # empty = latest via official installer
-POLONIUM_VERSION="v1.2.0"     # pin the KWin script release
+# Krohnkite (anametologin fork, actively maintained) replaced Polonium here in
+# 2026-07: Polonium's upstream repo was archived Nov 2025.
+KROHNKITE_VERSION="0.9.9.2"   # pin the KWin script release
+KROHNKITE_URL="https://codeberg.org/anametologin/Krohnkite/releases/download/$KROHNKITE_VERSION/krohnkite-$KROHNKITE_VERSION-1d7fd74.kwinscript"
 OMADOTS_RAW="https://raw.githubusercontent.com/omacom-io/omadots/master/config"
 
 while [ $# -gt 0 ]; do
@@ -192,30 +195,32 @@ install_starship() {
 }
 
 # ----------------------------------------------------------------------------
-# 6. Polonium (auto-tiling KWin script)
+# 6. Krohnkite (auto-tiling KWin script)
 # ----------------------------------------------------------------------------
-install_polonium() {
-  log "Installing Polonium $POLONIUM_VERSION (auto-tiling)"
+install_krohnkite() {
+  log "Installing Krohnkite $KROHNKITE_VERSION (auto-tiling)"
   local tmp; tmp="$(mktemp -d)"
-  curl -fL -o "$tmp/polonium.kwinscript" \
-    "https://github.com/zeroxoneafour/polonium/releases/download/$POLONIUM_VERSION/polonium.kwinscript"
-  if [ -d ~/.local/share/kwin/scripts/polonium ]; then
-    kpackagetool6 --type=KWin/Script --upgrade "$tmp/polonium.kwinscript" >/dev/null
+  curl -fL -o "$tmp/krohnkite.kwinscript" "$KROHNKITE_URL"
+  if [ -d ~/.local/share/kwin/scripts/krohnkite ]; then
+    kpackagetool6 --type=KWin/Script --upgrade "$tmp/krohnkite.kwinscript" >/dev/null
   else
-    kpackagetool6 --type=KWin/Script --install "$tmp/polonium.kwinscript" >/dev/null
+    kpackagetool6 --type=KWin/Script --install "$tmp/krohnkite.kwinscript" >/dev/null
   fi
   rm -rf "$tmp"
-  kwriteconfig6 --file kwinrc --group Plugins --key poloniumEnabled true
+  kwriteconfig6 --file kwinrc --group Plugins --key krohnkiteEnabled true
+  # Retire Polonium if an older omasteam install enabled it (the script stays
+  # on disk for manual rollback; only the plugin flag is flipped).
+  kwriteconfig6 --file kwinrc --group Plugins --key poloniumEnabled false
   qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || true
-  ok "Polonium installed + enabled"
+  ok "Krohnkite installed + enabled"
 }
 
 # ----------------------------------------------------------------------------
-# 7. Omarchy keybindings -> KDE + Polonium
+# 7. Omarchy keybindings -> KDE + Krohnkite
 # ----------------------------------------------------------------------------
 configure_keybindings() {
   [ "$DO_KEYBINDINGS" = 1 ] || { ok "Keybindings skipped (--no-keybindings)"; return; }
-  log "Mapping Omarchy keybindings into KDE + Polonium"
+  log "Mapping Omarchy keybindings into KDE + Krohnkite"
 
   local KGS=kglobalshortcutsrc
   local TAB=$'\t'
@@ -230,20 +235,24 @@ configure_keybindings() {
   done
 
   # Focus (Super+arrows, keep Meta+hjkl)
-  kw "PoloniumActivateLeft"  "Meta+Left${TAB}Meta+H,none,Polonium: Activate Left"
-  kw "PoloniumActivateRight" "Meta+Right${TAB}Meta+L,none,Polonium: Activate Right"
-  kw "PoloniumActivateAbove" "Meta+Up${TAB}Meta+K,none,Polonium: Activate Above"
-  kw "PoloniumActivateBelow" "Meta+Down${TAB}Meta+J,none,Polonium: Activate Below"
+  kw "KrohnkiteFocusLeft"  "Meta+Left${TAB}Meta+H,none,Krohnkite: Focus Left"
+  kw "KrohnkiteFocusRight" "Meta+Right${TAB}Meta+L,none,Krohnkite: Focus Right"
+  kw "KrohnkiteFocusUp"    "Meta+Up${TAB}Meta+K,none,Krohnkite: Focus Up"
+  kw "KrohnkiteFocusDown"  "Meta+Down${TAB}Meta+J,none,Krohnkite: Focus Down"
   # Move/swap (Super+Shift+arrows, keep Meta+Shift+hjkl)
-  kw "PoloniumPlaceLeft"  "Meta+Shift+Left${TAB}Meta+Shift+H,none,Polonium: Place Window Left"
-  kw "PoloniumPlaceRight" "Meta+Shift+Right${TAB}Meta+Shift+L,none,Polonium: Place Window Right"
-  kw "PoloniumPlaceAbove" "Meta+Shift+Up${TAB}Meta+Shift+K,none,Polonium: Place Window Above"
-  kw "PoloniumPlaceBelow" "Meta+Shift+Down${TAB}Meta+Shift+J,none,Polonium: Place Window Below"
-  # Resize (Super+ -/=, keep Meta+Ctrl+hjkl)
-  kw "PoloniumResizeLeft"  "Meta+Ctrl+H${TAB}Meta+Minus,none,Polonium: Resize Tile Left"
-  kw "PoloniumResizeRight" "Meta+Ctrl+L${TAB}Meta+Equal,none,Polonium: Resize Tile Right"
+  kw "KrohnkiteShiftLeft"  "Meta+Shift+Left${TAB}Meta+Shift+H,none,Krohnkite: Move Left"
+  kw "KrohnkiteShiftRight" "Meta+Shift+Right${TAB}Meta+Shift+L,none,Krohnkite: Move Right"
+  kw "KrohnkiteShiftUp"    "Meta+Shift+Up${TAB}Meta+Shift+K,none,Krohnkite: Move Up/Prev"
+  kw "KrohnkiteShiftDown"  "Meta+Shift+Down${TAB}Meta+Shift+J,none,Krohnkite: Move Down/Next"
+  # Resize (Meta+Ctrl+hjkl). NOT Meta+-/= like Omarchy: KWin's Zoom effect owns
+  # Meta+-, Meta+= (and always silently won that conflict, even vs Polonium).
+  # NB Krohnkite's action ids really are "growWidth"/"toggleDock" lowercase.
+  kw "KrohnkiteShrinkWidth"  "Meta+Ctrl+H,none,Krohnkite: Shrink Width"
+  kw "KrohnkitegrowWidth"    "Meta+Ctrl+L,none,Krohnkite: Grow Width"
+  kw "KrohnkiteShrinkHeight" "Meta+Ctrl+J,none,Krohnkite: Shrink Height"
+  kw "KrohnkiteGrowHeight"   "Meta+Ctrl+K,none,Krohnkite: Grow Height"
   # Float toggle (Super+Shift+V, keep Meta+Shift+Space)
-  kw "PoloniumToggleActiveTiling" "Meta+Shift+Space${TAB}Meta+Shift+V,none,Polonium: Toggle Tiling on Active Window"
+  kw "KrohnkiteToggleFloat" "Meta+Shift+Space${TAB}Meta+Shift+V,none,Krohnkite: Toggle Float"
 
   # Free Meta+arrows from quick-tile so focus movement wins
   kw "Window Quick Tile Left"   "none,Meta+Left,Quick Tile Window to the Left"
@@ -279,13 +288,13 @@ EOF
   # sticks across logout AND applies immediately (no relogin). Requires an active session.
   # (3) On a fresh one-shot install, even the "non-conflicting" kwriteconfig6 writes above
   # get CLOBBERED: entries for components the running daemon already registered (kwin core,
-  # Polonium) live dirty in its memory with their defaults, and the daemon's next settings
+  # Krohnkite) live dirty in its memory with their defaults, and the daemon's next settings
   # sync — triggered seconds later by our own setForeignShortcut calls — writes those
-  # defaults back over our file edits. So every kwin/Polonium bind is re-asserted through
+  # defaults back over our file edits. So every kwin/Krohnkite bind is re-asserted through
   # the daemon below; the file writes above only matter for the no-dbus fallback path.
   if ! have dbus-send; then
     warn "dbus-send missing / no session — conflicting + launcher shortcuts not set"
-    ok "Polonium + non-conflicting binds written to file"; return
+    ok "Krohnkite + non-conflicting binds written to file"; return
   fi
   local META=268435456 ALT=134217728 SHIFT=33554432 CTRL=67108864
   local KLEFT=16777234 KUP=16777235 KRIGHT=16777236 KDOWN=16777237 KF11=16777274
@@ -308,9 +317,24 @@ EOF
   setsc "kwin" "Window Quick Tile Top"    "KWin" "Quick Tile Window to the Top"    ""
   setsc "kwin" "Window Quick Tile Bottom" "KWin" "Quick Tile Window to the Bottom" ""
   setsc "kwin" "Edit Tiles"               "KWin" "Toggle Tiles Editor"             ""
-  # Meta+Shift+Left/Right are KWin defaults for prev/next screen — they beat PoloniumPlace*
+  # Meta+Shift+Left/Right are KWin defaults for prev/next screen — they beat KrohnkiteShift*
   setsc "kwin" "Window to Previous Screen" "KWin" "Window to Previous Screen" ""
   setsc "kwin" "Window to Next Screen"     "KWin" "Window to Next Screen"     ""
+
+  # Clear any binds a pre-Krohnkite omasteam install gave Polonium (its actions
+  # linger in kglobalaccel even after the script is disabled and would keep the
+  # keys grabbed). No-ops when Polonium was never installed.
+  local pa
+  for pa in "ActivateLeft:Activate Left" "ActivateRight:Activate Right" \
+            "ActivateAbove:Activate Above" "ActivateBelow:Activate Below" \
+            "PlaceLeft:Place Window Left" "PlaceRight:Place Window Right" \
+            "PlaceAbove:Place Window Above" "PlaceBelow:Place Window Below" \
+            "ResizeLeft:Resize Tile Left" "ResizeRight:Resize Tile Right" \
+            "ResizeUp:Resize Tile Up" "ResizeDown:Resize Tile Down" \
+            "ToggleActiveTiling:Toggle Tiling on Active Window" \
+            "ToggleSettingsMenu:Toggle Settings Menu"; do
+    setsc "kwin" "Polonium${pa%%:*}" "KWin" "Polonium: ${pa#*:}" ""
+  done
 
   # KWin-core binds that needed a conflict freed
   setsc "kwin" "Window Close" "KWin" "Close Window" "$((META+87)),$((ALT+16777267))"        # Meta+W, Alt+F4
@@ -318,18 +342,20 @@ EOF
     setsc "kwin" "Switch to Desktop $n" "KWin" "Switch to Desktop $n" "$((META+48+n))"       # Meta+<n>
   done
 
-  # Re-assert every file-written kwin/Polonium bind through the daemon (see comment above)
-  setsc "kwin" "PoloniumActivateLeft"  "KWin" "Polonium: Activate Left"  "$((META+KLEFT)),$((META+72))"
-  setsc "kwin" "PoloniumActivateRight" "KWin" "Polonium: Activate Right" "$((META+KRIGHT)),$((META+76))"
-  setsc "kwin" "PoloniumActivateAbove" "KWin" "Polonium: Activate Above" "$((META+KUP)),$((META+75))"
-  setsc "kwin" "PoloniumActivateBelow" "KWin" "Polonium: Activate Below" "$((META+KDOWN)),$((META+74))"
-  setsc "kwin" "PoloniumPlaceLeft"  "KWin" "Polonium: Place Window Left"  "$((META+SHIFT+KLEFT)),$((META+SHIFT+72))"
-  setsc "kwin" "PoloniumPlaceRight" "KWin" "Polonium: Place Window Right" "$((META+SHIFT+KRIGHT)),$((META+SHIFT+76))"
-  setsc "kwin" "PoloniumPlaceAbove" "KWin" "Polonium: Place Window Above" "$((META+SHIFT+KUP)),$((META+SHIFT+75))"
-  setsc "kwin" "PoloniumPlaceBelow" "KWin" "Polonium: Place Window Below" "$((META+SHIFT+KDOWN)),$((META+SHIFT+74))"
-  setsc "kwin" "PoloniumResizeLeft"  "KWin" "Polonium: Resize Tile Left"  "$((META+CTRL+72)),$((META+45))"  # Meta+Ctrl+H, Meta+-
-  setsc "kwin" "PoloniumResizeRight" "KWin" "Polonium: Resize Tile Right" "$((META+CTRL+76)),$((META+61))"  # Meta+Ctrl+L, Meta+=
-  setsc "kwin" "PoloniumToggleActiveTiling" "KWin" "Polonium: Toggle Tiling on Active Window" "$((META+SHIFT+32)),$((META+SHIFT+86))"
+  # Re-assert every file-written kwin/Krohnkite bind through the daemon (see comment above)
+  setsc "kwin" "KrohnkiteFocusLeft"   "KWin" "Krohnkite: Focus Left"     "$((META+KLEFT)),$((META+72))"
+  setsc "kwin" "KrohnkiteFocusRight"  "KWin" "Krohnkite: Focus Right"    "$((META+KRIGHT)),$((META+76))"
+  setsc "kwin" "KrohnkiteFocusUp"     "KWin" "Krohnkite: Focus Up"       "$((META+KUP)),$((META+75))"
+  setsc "kwin" "KrohnkiteFocusDown"   "KWin" "Krohnkite: Focus Down"     "$((META+KDOWN)),$((META+74))"
+  setsc "kwin" "KrohnkiteShiftLeft"   "KWin" "Krohnkite: Move Left"      "$((META+SHIFT+KLEFT)),$((META+SHIFT+72))"
+  setsc "kwin" "KrohnkiteShiftRight"  "KWin" "Krohnkite: Move Right"     "$((META+SHIFT+KRIGHT)),$((META+SHIFT+76))"
+  setsc "kwin" "KrohnkiteShiftUp"     "KWin" "Krohnkite: Move Up/Prev"   "$((META+SHIFT+KUP)),$((META+SHIFT+75))"
+  setsc "kwin" "KrohnkiteShiftDown"   "KWin" "Krohnkite: Move Down/Next" "$((META+SHIFT+KDOWN)),$((META+SHIFT+74))"
+  setsc "kwin" "KrohnkiteShrinkWidth"  "KWin" "Krohnkite: Shrink Width"  "$((META+CTRL+72))"  # Meta+Ctrl+H
+  setsc "kwin" "KrohnkitegrowWidth"    "KWin" "Krohnkite: Grow Width"    "$((META+CTRL+76))"  # Meta+Ctrl+L
+  setsc "kwin" "KrohnkiteShrinkHeight" "KWin" "Krohnkite: Shrink Height" "$((META+CTRL+74))"  # Meta+Ctrl+J
+  setsc "kwin" "KrohnkiteGrowHeight"   "KWin" "Krohnkite: Grow Height"   "$((META+CTRL+75))"  # Meta+Ctrl+K
+  setsc "kwin" "KrohnkiteToggleFloat"  "KWin" "Krohnkite: Toggle Float"  "$((META+SHIFT+32)),$((META+SHIFT+86))"
   setsc "kwin" "Window Fullscreen" "KWin" "Make Window Fullscreen" "$((SHIFT+KF11))"         # Shift+F11
   for n in 1 2 3 4 5 6 7 8 9; do
     setsc "kwin" "Window to Desktop $n" "KWin" "Window to Desktop $n" "$((META+SHIFT+48+n))" # Meta+Shift+<n>
@@ -665,7 +691,7 @@ set_default_terminal
 install_font
 install_kitty_config
 install_starship
-install_polonium
+install_krohnkite
 configure_keybindings
 install_bar
 configure_panel
@@ -679,7 +705,7 @@ cat <<'EOF'
  ➜  Keyboard shortcuts were applied LIVE (kglobalaccel) — test them now.
  ➜  LOG OUT / back in (or reboot) to finish activating:
       • $TERMINAL=kitty and the Run-In-kitty service menu
-      • Polonium arrow-key binds + the 9 virtual desktops
+      • Krohnkite arrow-key binds + the 9 virtual desktops
       • (with --with-omadots) Super+N → nvim
  ➜  In a running kitty, Ctrl+Shift+F5 reloads its config.
  ➜  (with --with-omadots) open a new kitty or `source ~/.bashrc` for the shell env.

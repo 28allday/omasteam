@@ -5,7 +5,7 @@ reproduced entirely in **userland** (`~/.local`), since SteamOS's root filesyste
 read-only. No `pacman`, no `sudo`, survives OS updates.
 
 Gives you: **kitty** as the default terminal (JetBrainsMono, hidden tab bar, live theme),
-**Polonium** auto-tiling, the full **Omarchy keybinding** set on KDE, an **omadots**
+**Krohnkite** auto-tiling, the full **Omarchy keybinding** set on KDE, an **omadots**
 terminal environment (eza/bat/fzf/zoxide/neovim+LazyVim/starship), and a one-command
 **theme switcher** that re-themes the *whole* system from any Omarchy theme's git URL.
 
@@ -24,7 +24,7 @@ terminal environment (eza/bat/fzf/zoxide/neovim+LazyVim/starship), and a one-com
 
 ![omasteam themed desktop](screenshots/02-omasteam-desktop.png)
 
-**Polonium auto-tiling** — windows tile automatically; here btop, kitty and Firefox share the screen:
+**Krohnkite auto-tiling** — windows tile automatically; here btop, kitty and Firefox share the screen:
 
 ![omasteam auto-tiling: btop, kitty, Firefox](screenshots/03-tiling-btop-kitty-firefox.png)
 
@@ -54,14 +54,14 @@ theme https://github.com/OldJobobo/omarchy-miasma-theme.git   # paste any omarch
 (You *can* apply one during install with `--theme <git-url>`, but it's not the default.)
 
 Reboot once — that's required, not optional. It activates the login-gated pieces
-(`$TERMINAL`, the Run-In-kitty menu, Polonium's arrow binds, the 9 virtual desktops, and
+(`$TERMINAL`, the Run-In-kitty menu, Krohnkite's arrow binds, the 9 virtual desktops, and
 the autostart that grabs the launcher shortcuts). After the reboot, everything works.
 
 ## Flags
 
 | Flag | Effect |
 |------|--------|
-| *(none)* | Desktop only: kitty, default-terminal, font, Polonium, keybinds |
+| *(none)* | Desktop only: kitty, default-terminal, font, Krohnkite, keybinds |
 | `--with-omadots` | + terminal/dev env (eza, bat, fzf, zoxide, neovim/LazyVim, starship, shell) |
 | `--omadots-no-nvim` | with `--with-omadots`, skip neovim/LazyVim |
 | `--with-bar` | + the **omasteam bar**: an Omarchy-4-style QML top bar (see below) |
