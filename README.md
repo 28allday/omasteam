@@ -117,9 +117,10 @@ run by SteamOS's stock **Qt6** as a **wlr-layer-shell** surface. No Quickshell
 - **Interactive:** clicking a workspace switches to it; the power button opens
   the KDE logout prompt
 
-It installs the Plasma panel to the **bottom** (not hidden) so the Deck's real
-system tray — and its own Return-to-Gaming button — stay one tap away. The
-`Return to Gaming Mode` desktop icon is untouched.
+It **removes the stock Plasma panel** (backed up first to
+`~/.config/omasteam-panel-backup.appletsrc`) so the bar owns the desktop,
+Omarchy-style — the bar itself carries Return-to-Gaming, network, volume,
+battery and power. The `Return to Gaming Mode` desktop icon is untouched.
 
 How it works: a small bash daemon (`omasteam-bar-daemon`) polls the system +
 theme and writes `~/.local/state/omasteam-bar/state.json`; the bar reads it on a
