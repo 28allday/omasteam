@@ -24,6 +24,11 @@ Window {
 
     LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
     LayerShell.Window.layer: LayerShell.Window.LayerOverlay
+    // exclusionZone -1 = ignore other surfaces' exclusive zones (the bar's), so
+    // the scrim fills the WHOLE output including behind the bar. (Omarchy's menu
+    // does the same via exclusionMode: ExclusionMode.Ignore.) Default 0 would let
+    // the bar's reserved strip shrink this window, leaving the top undimmed.
+    LayerShell.Window.exclusionZone: -1
     // Grab the keyboard while the menu is up (the bar uses None; the menu is modal).
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityExclusive
 
@@ -181,7 +186,7 @@ Window {
     //      shrinking/back-navigating panel vacates un-cleared, so old rows linger.
     Rectangle {
         anchors.fill: parent
-        color: win.alpha(win.cBg, 0.5)
+        color: win.alpha(win.cBg, 0.3)
     }
     // Click anywhere outside the panel dismisses (the panel absorbs its own clicks).
     MouseArea { anchors.fill: parent; onClicked: Qt.quit() }
