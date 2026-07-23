@@ -96,7 +96,12 @@ launch() { setsid "$@" >/dev/null 2>&1 </dev/null & }
 run_menu_cmd() {
   local cmd="$1" name
   case "$cmd" in
-    apps)           launch krunner ;;
+    # KDE settings modules: every settings leaf is `kcm:<module>` → open it in
+    # kcmshell6. One generic case covers the whole systemsettings tree.
+    kcm:*)          launch kcmshell6 "${cmd#kcm:}" ;;
+    # Full KDE System Settings app (the "Open Full System Settings" leaf).
+    settings)       if command -v systemsettings >/dev/null; then launch systemsettings
+                    else launch kcmshell6 kcm_landingpage; fi ;;
     # spectacle background captures save to the default screenshots location.
     shot-region)    launch spectacle -r -b -n ;;
     shot-window)    launch spectacle -a -b -n ;;
@@ -105,11 +110,8 @@ run_menu_cmd() {
     wallpaper-next) omasteam-theme wallpaper next 2>/dev/null ;;
     theme-set:*)    name="${cmd#theme-set:}"
                     [ -n "$name" ] && omasteam-theme set "$name" 2>/dev/null ;;   # bar re-themes on its next tick
+    # Wi-Fi uses the NetworkManager applet (nicer picker than the kcm editor).
     wifi)           launch plasmawindowed org.kde.plasma.networkmanagement ;;
-    bluetooth)      launch kcmshell6 kcm_bluetooth ;;
-    audio)          launch kcmshell6 kcm_pulseaudio ;;
-    display)        launch kcmshell6 kcm_kscreen ;;
-    nightlight)     launch kcmshell6 kcm_nightlight ;;
     lock)           loginctl lock-session 2>/dev/null \
                       || qdbus6 org.kde.screensaver /ScreenSaver Lock 2>/dev/null ;;
     suspend)        systemctl suspend ;;

@@ -1,0 +1,157 @@
+#!/bin/bash
+# omasteam-apps — Omarchy-style application launcher for SteamOS + KDE (Meta+Space).
+#
+# Companion to omasteam-menu (the system-settings surface). This is JUST the app
+# picker: a walker-style, type-to-filter overlay over the system's .desktop
+# entries. Same pure-userland approach as the bar/menu — SteamOS's stock Qt6 +
+# org.kde.layershell via qmlscene, no Quickshell/compiler/sudo.
+#
+# This script is BOTH the launcher and the backend: plain QML can't spawn
+# processes, so the chosen .desktop path is pushed to a SQLite outbox (table
+# `apps_outbox`, distinct from the bar's `outbox` and the menu's `menu_outbox`)
+# and this script — which blocks until the overlay closes — launches it.
+#
+# Meta+Space toggles: launching again while the launcher is up closes it.
+#
+# Usage:  omasteam-apps           show the launcher, then run the chosen app
+#         omasteam-apps --print   show the launcher, print the chosen id, don't run
+set -uo pipefail
+
+export PATH="$HOME/.local/bin:$PATH"
+
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+QML=""
+for cand in \
+  "$HERE/../artifacts/bar/omasteam-apps.qml" \
+  "$HOME/.local/share/omasteam/bar/omasteam-apps.qml"; do
+  [ -f "$cand" ] && { QML="$cand"; break; }
+done
+[ -n "$QML" ] || { echo "omasteam-apps: cannot find omasteam-apps.qml" >&2; exit 1; }
+
+QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
+[ -n "$QMLSCENE" ] || { echo "omasteam-apps: qmlscene not found" >&2; exit 1; }
+
+# Palette comes from the bar daemon's state.json (reuse the live theme).
+BAR_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar/state.json"
+APPS_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-apps"
+mkdir -p "$APPS_DIR"
+RENDERED="$APPS_DIR/omasteam-apps.rendered.qml"
+
+MODE=run
+[ "${1:-}" = "--print" ] && MODE=print
+
+# ---- single-instance toggle ------------------------------------------------
+# The running overlay is `qmlscene .../omasteam-apps.rendered.qml`; our own
+# command line is `.../omasteam-apps` (no "rendered.qml"), so pkill won't hit us.
+RENDERED_PAT="omasteam-apps.rendered.qml"
+if [ "$MODE" = run ] && pgrep -f "$RENDERED_PAT" >/dev/null 2>&1; then
+  pkill -f "$RENDERED_PAT" 2>/dev/null
+  exit 0
+fi
+
+# ---- build the app list (JSON array of { label, action }) ------------------
+# Scans the standard XDG application dirs, honours NoDisplay/Hidden, dedups by
+# .desktop basename (user dirs first so overrides win), sorts by name. Each entry
+# becomes `launch-desktop:<path>`.
+json_escape() { local s="$1"; s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; printf '%s' "$s"; }
+
+apps_json() {
+  local -A seen=()
+  local dirs=(
+    "$HOME/.local/share/applications"
+    "$HOME/.local/share/flatpak/exports/share/applications"
+    "/var/lib/flatpak/exports/share/applications"
+    "/usr/local/share/applications"
+    "/usr/share/applications"
+  )
+  local d f base name
+  local -a lines=()
+  for d in "${dirs[@]}"; do
+    [ -d "$d" ] || continue
+    for f in "$d"/*.desktop; do
+      [ -f "$f" ] || continue
+      base="$(basename "$f")"
+      [ -n "${seen[$base]:-}" ] && continue
+      seen[$base]=1
+      # Must be a launchable application entry that isn't hidden.
+      grep -qE '^Type=Application[[:space:]]*$' "$f" || continue
+      grep -qiE '^(NoDisplay|Hidden)[[:space:]]*=[[:space:]]*true' "$f" && continue
+      grep -qE '^Exec[[:space:]]*=' "$f" || continue
+      name="$(grep -m1 -E '^Name[[:space:]]*=' "$f" | cut -d= -f2-)"
+      name="${name#"${name%%[![:space:]]*}"}"   # ltrim
+      [ -n "$name" ] || continue
+      # Sort key (lowercased name) TAB name TAB path
+      lines+=("$(printf '%s\t%s\t%s' "${name,,}" "$name" "$f")")
+    done
+  done
+  local out="[" first=1 sorted
+  sorted="$(printf '%s\n' "${lines[@]}" | LC_ALL=C sort -f)"
+  while IFS=$'\t' read -r _key nm pth; do
+    [ -n "$nm" ] || continue
+    if [ $first -eq 1 ]; then first=0; else out+=","; fi
+    out+="{\"label\":\"$(json_escape "$nm")\",\"action\":\"launch-desktop:$(json_escape "$pth")\"}"
+  done <<< "$sorted"
+  out+="]"
+  printf '%s' "$out"
+}
+APPSJSON="$(apps_json)"
+
+# ---- render self-contained temp QML (qmlscene can't take argv/env) ----------
+# `@` sentinel replaced via a temp file to avoid sed choking on the JSON's / and &.
+python_free_render() {
+  # Use awk for a literal (no-regex) replace of the two placeholders.
+  awk -v state="$BAR_STATE" -v apps="$APPSJSON" '
+    { line=$0
+      gsub(/@@STATE@@/, state, line)
+      # @@APPS@@ replaced literally: index/substr avoids gsub treating & specially.
+      p=index(line,"@@APPS@@")
+      while (p>0) { line=substr(line,1,p-1) apps substr(line,p+8); p=index(line,"@@APPS@@") }
+      print line
+    }' "$QML" > "$RENDERED"
+}
+python_free_render
+
+# ---- SQLite outbox (table `apps_outbox`) -----------------------------------
+drain_outbox() { # $1 = 1 to emit, 0 to purge silently
+  command -v sqlite3 >/dev/null || return
+  local db c emit="$1"
+  while IFS= read -r db; do
+    [ -f "$db" ] || continue
+    sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='apps_outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
+    if [ "$emit" = 1 ]; then
+      while IFS= read -r c; do [ -n "$c" ] && printf '%s\n' "$c"; done \
+        < <(sqlite3 "$db" "SELECT cmd FROM apps_outbox ORDER BY id;" 2>/dev/null)
+    fi
+    sqlite3 "$db" "DELETE FROM apps_outbox;" 2>/dev/null
+  done < <(find "$HOME/.local/share" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+}
+
+# ---- action dispatch -------------------------------------------------------
+launch() { setsid "$@" >/dev/null 2>&1 </dev/null & }
+run_apps_cmd() {
+  local cmd="$1" p id
+  case "$cmd" in
+    launch-desktop:*)
+      p="${cmd#launch-desktop:}"
+      if command -v gio >/dev/null 2>&1; then launch gio launch "$p"
+      elif command -v kstart >/dev/null 2>&1; then launch kstart "$p"
+      elif command -v gtk-launch >/dev/null 2>&1; then
+        id="$(basename "$p")"; id="${id%.desktop}"; launch gtk-launch "$id"
+      else echo "omasteam-apps: no launcher (gio/kstart/gtk-launch) found" >&2; fi ;;
+    "" ) : ;;
+    *  ) echo "omasteam-apps: unknown action '$cmd'" >&2 ;;
+  esac
+}
+
+# ---- run --------------------------------------------------------------------
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
+export QT_WAYLAND_SHELL_INTEGRATION=layer-shell
+export QML_XHR_ALLOW_FILE_READ=1
+
+drain_outbox 0                            # purge any stale choice first
+"$QMLSCENE" "$RENDERED" >/dev/null 2>&1    # blocks until the overlay closes
+
+while IFS= read -r choice; do
+  [ -z "$choice" ] && continue
+  if [ "$MODE" = print ]; then printf '%s\n' "$choice"; else run_apps_cmd "$choice"; fi
+done < <(drain_outbox 1)

@@ -153,6 +153,10 @@ run_cmd() {
               # Space); fall back to KRunner if it isn't installed.
               if command -v omasteam-menu >/dev/null; then omasteam-menu 2>/dev/null &
               elif command -v krunner >/dev/null; then krunner 2>/dev/null & fi ;;
+    apps)     # The bar's apps button opens the omasteam app launcher (Meta+Space);
+              # fall back to KRunner if it isn't installed.
+              if command -v omasteam-apps >/dev/null; then omasteam-apps 2>/dev/null &
+              elif command -v krunner >/dev/null; then krunner 2>/dev/null & fi ;;
     power)    qdbus6 org.kde.LogoutPrompt /LogoutPrompt promptLogout 2>/dev/null \
                 || qdbus6 org.kde.ksmserver /KSMServer logout 1 0 3 2>/dev/null & ;;
     return-to-gaming)

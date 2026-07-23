@@ -40,6 +40,7 @@ Window {
     // Nerd Font (FontAwesome) glyphs.
     readonly property string icoMenu:    ""
     readonly property string icoWifi:    ""
+    readonly property string icoApps:  String.fromCodePoint(0xF00A)   // th (grid) — app launcher
     readonly property string icoEth:   String.fromCodePoint(0xF0200)  // md-ethernet
     readonly property string icoNoNet:   ""
     readonly property string icoVol:     ""
@@ -102,11 +103,18 @@ Window {
             anchors { left: parent.left; leftMargin: 8; verticalCenter: parent.verticalCenter }
             spacing: 6
 
-            // menu / launcher
+            // system menu (settings) — Meta+Alt+Space
             Chip {
                 glyph: win.icoMenu
                 glyphColor: win.cAccent
                 onClicked: win.sendCmd("menu")
+            }
+
+            // app launcher — Meta+Space
+            Chip {
+                glyph: win.icoApps
+                glyphColor: win.cAccent
+                onClicked: win.sendCmd("apps")
             }
 
             Row {

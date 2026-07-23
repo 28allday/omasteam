@@ -349,7 +349,7 @@ EOF
   setsc "org.kde.dolphin.desktop" "_launch" "Dolphin" "Dolphin"      "$((META+70))"             # Meta+F
   setsc "$BROWSER_DESKTOP"        "_launch" "Browser" "Web Browser"  "$((META+66))"             # Meta+B
   setsc "omarchy-btop.desktop"    "_launch" "btop"    "btop"         "$((META+84))"             # Meta+T
-  setsc "org.kde.krunner.desktop" "_launch" "KRunner" "KRunner"      "$((META+32)),$((ALT+32))" # Meta+Space, Alt+Space
+  setsc "org.kde.krunner.desktop" "_launch" "KRunner" "KRunner"      "$((ALT+32))"              # Alt+Space (Meta+Space -> omasteam-apps)
   svc "kitty.desktop"        "Meta+Return,none,Launch kitty"
   svc "omarchy-btop.desktop" "Meta+T,none,btop"
   svc "$BROWSER_DESKTOP"     "Meta+B,none,Web Browser"
@@ -501,6 +501,40 @@ EOF
       array:int32:402653216 >/dev/null 2>&1 || true
   fi
   ok "system menu installed; Meta+Alt+Space bound (live + persisted)"
+
+  # ---- app launcher (Omarchy-style, Meta+Space) ----
+  # Separate from the system menu: omasteam-apps is JUST the .desktop app picker.
+  install -m644 "$ART/bar/omasteam-apps.qml" "$share/omasteam-apps.qml"
+  install -m755 "$SCRIPT_DIR/bin/omasteam-apps" "$HOME/.local/bin/omasteam-apps"
+  cat > ~/.local/share/applications/omasteam-apps.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=omasteam Apps
+Comment=Omarchy-style application launcher (Meta+Space)
+Exec=$HOME/.local/bin/omasteam-apps
+Icon=applications-all
+Terminal=false
+Categories=System;
+NoDisplay=true
+EOF
+  update-desktop-database ~/.local/share/applications 2>/dev/null || true
+  # Bind Meta+Space -> the app launcher (krunner is moved to Alt+Space only in
+  # configure_keybindings so this key is free). Keycode 268435488 = Meta+Space.
+  # Same doRegister-then-setForeignShortcut dance as the system menu so the grab
+  # attaches live; the rebind autostart re-asserts it at login.
+  kwriteconfig6 --file kglobalshortcutsrc --group services \
+    --group omasteam-apps.desktop --key _launch "Meta+Space,none,omasteam Apps"
+  if have dbus-send; then
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+    dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
+      org.kde.KGlobalAccel.doRegister \
+      array:string:"omasteam-apps.desktop","_launch","omasteam Apps","omasteam Apps" >/dev/null 2>&1 || true
+    dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
+      org.kde.KGlobalAccel.setForeignShortcut \
+      array:string:"omasteam-apps.desktop","_launch","omasteam Apps","omasteam Apps" \
+      array:int32:268435488 >/dev/null 2>&1 || true
+  fi
+  ok "app launcher installed; Meta+Space bound (live + persisted)"
 
   # Autostart at login (KDE Wayland). Exec MUST be an absolute path: the
   # graphical session's PATH does not include ~/.local/bin (that's added by

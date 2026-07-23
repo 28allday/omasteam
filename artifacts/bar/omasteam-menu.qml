@@ -80,13 +80,29 @@ Window {
     // ---- Nerd Font (FontAwesome) glyphs --------------------------------------
     // Kept as codepoints so this source stays ASCII-clean and unambiguous.
     function g(cp) { return String.fromCodePoint(cp) }
-    readonly property string icoApps:    g(0xF00A)  // th (grid)
+    // omasteam chrome
     readonly property string icoCapture: g(0xF030)  // camera
     readonly property string icoStyle:   g(0xF1FC)  // paint-brush
-    readonly property string icoSetup:   g(0xF013)  // cog
     readonly property string icoSystem:  g(0xF011)  // power-off
     readonly property string icoChevron: g(0xF054)  // chevron-right (submenu marker)
     readonly property string icoSearch:  g(0xF002)  // magnifier
+    // KDE settings categories (mirror systemsettings' sidebar)
+    readonly property string icoDisplay:  g(0xF108)  // desktop
+    readonly property string icoAccess:   g(0xF29A)  // universal-access
+    readonly property string icoDevices:  g(0xF1E6)  // plug
+    readonly property string icoNet:      g(0xF0AC)  // globe
+    readonly property string icoLook:     g(0xF53F)  // palette
+    readonly property string icoWindows:  g(0xF2D0)  // window-maximize
+    readonly property string icoSound:    g(0xF028)  // volume-up
+    readonly property string icoPowerMgt: g(0xF0E7)  // bolt
+    readonly property string icoInput:    g(0xF11C)  // keyboard
+    readonly property string icoWork:     g(0xF0DB)  // columns
+    readonly property string icoSecurity: g(0xF023)  // lock
+    readonly property string icoStartup:  g(0xF135)  // rocket
+    readonly property string icoLang:     g(0xF1AB)  // language
+    readonly property string icoUsers:    g(0xF0C0)  // users
+    readonly property string icoInfo:     g(0xF05A)  // info-circle
+    readonly property string icoAllSet:   g(0xF085)  // cogs
 
     // ---- menu tree -----------------------------------------------------------
     // Leaf nodes carry `action` (an id the launcher dispatches); branch nodes
@@ -106,26 +122,94 @@ Window {
         return out
     }
 
+    // The menu IS the system-settings surface (apps live in the separate
+    // omasteam-apps launcher now). Top level mirrors KDE systemsettings' sidebar;
+    // each leaf's `kcm:<module>` action opens that module via kcmshell6. omasteam's
+    // own chrome (Style / Capture / Power) sits at the bottom.
     property var menuTree: [
-        { glyph: icoApps,    label: "Apps",    action: "apps" },
+        { glyph: icoDisplay,  label: "Display & Monitor", children: [
+            { glyph: g(0xF108), label: "Display Configuration", action: "kcm:kcm_kscreen" },
+            { glyph: g(0xF186), label: "Night Light",           action: "kcm:kcm_nightlight" },
+        ]},
+        { glyph: icoAccess,   label: "Accessibility", action: "kcm:kcm_access" },
+        { glyph: icoDevices,  label: "Connected Devices", children: [
+            { glyph: g(0xF294), label: "Bluetooth",       action: "kcm:kcm_bluetooth" },
+            { glyph: g(0xF0A0), label: "Disks & Cameras", action: "kcm:kcm_device_automounter" },
+            { glyph: g(0xF0E7), label: "Thunderbolt",     action: "kcm:kcm_bolt" },
+            { glyph: g(0xF10B), label: "KDE Connect",     action: "kcm:kcm_kdeconnect" },
+            { glyph: g(0xF02F), label: "Printers",        action: "kcm:kcm_printer_manager" },
+        ]},
+        { glyph: icoNet,      label: "Networking", children: [
+            { glyph: g(0xF1EB), label: "Wi-Fi & Internet",    action: "wifi" },
+            { glyph: g(0xF0E8), label: "Network Connections", action: "kcm:kcm_networkmanagement" },
+            { glyph: g(0xF2BD), label: "Online Accounts",     action: "kcm:kcm_kaccounts" },
+            { glyph: g(0xF108), label: "Remote Desktop",      action: "kcm:kcm_krdpserver" },
+        ]},
+        { glyph: icoLook,     label: "Appearance & Style", children: [
+            { glyph: g(0xF03E), label: "Wallpaper",    action: "kcm:kcm_wallpaper" },
+            { glyph: g(0xF53F), label: "Colors",       action: "kcm:kcm_colors" },
+            { glyph: g(0xF1FC), label: "Plasma Style", action: "kcm:kcm_desktoptheme" },
+            { glyph: g(0xF042), label: "Global Theme", action: "kcm:kcm_lookandfeel" },
+            { glyph: g(0xF009), label: "Icons",        action: "kcm:kcm_icons" },
+            { glyph: g(0xF245), label: "Cursors",      action: "kcm:kcm_cursortheme" },
+            { glyph: g(0xF031), label: "Text & Fonts", action: "kcm:kcm_fonts" },
+            { glyph: g(0xF04B), label: "Animations",   action: "kcm:kcm_animations" },
+        ]},
+        { glyph: icoWindows,  label: "Apps & Windows", children: [
+            { glyph: g(0xF085), label: "Default Applications", action: "kcm:kcm_componentchooser" },
+            { glyph: g(0xF0F3), label: "Notifications",        action: "kcm:kcm_notifications" },
+            { glyph: g(0xF2D0), label: "Window Behavior",      action: "kcm:kcm_kwinoptions" },
+            { glyph: g(0xF022), label: "Window Rules",         action: "kcm:kcm_kwinrules" },
+            { glyph: g(0xF050), label: "Task Switcher",        action: "kcm:kcm_kwintabbox" },
+            { glyph: g(0xF065), label: "Screen Edges",         action: "kcm:kcm_kwinscreenedges" },
+            { glyph: g(0xF074), label: "Activities",           action: "kcm:kcm_activities" },
+        ]},
+        { glyph: icoSound,    label: "Sound",            action: "kcm:kcm_pulseaudio" },
+        { glyph: icoPowerMgt, label: "Power Management", action: "kcm:kcm_powerdevilprofilesconfig" },
+        { glyph: icoInput,    label: "Input Devices", children: [
+            { glyph: g(0xF11C), label: "Keyboard",        action: "kcm:kcm_keyboard" },
+            { glyph: g(0xF084), label: "Shortcuts",       action: "kcm:kcm_keys" },
+            { glyph: g(0xF245), label: "Mouse",           action: "kcm:kcm_mouse" },
+            { glyph: g(0xF0A6), label: "Touchpad",        action: "kcm:kcm_touchpad" },
+            { glyph: g(0xF11B), label: "Game Controller", action: "kcm:kcm_gamecontroller" },
+        ]},
+        { glyph: icoWork,     label: "Workspace", children: [
+            { glyph: g(0xF013), label: "General Behavior",  action: "kcm:kcm_workspace" },
+            { glyph: g(0xF002), label: "Search",            action: "kcm:kcm_plasmasearch" },
+            { glyph: g(0xF0DB), label: "Virtual Desktops",  action: "kcm:kcm_kwin_virtualdesktops" },
+        ]},
+        { glyph: icoSecurity, label: "Security & Privacy", children: [
+            { glyph: g(0xF023), label: "Screen Locking",         action: "kcm:kcm_screenlocker" },
+            { glyph: g(0xF132), label: "Application Permissions", action: "kcm:kcm_flatpak" },
+            { glyph: g(0xF1DA), label: "Recent Files",           action: "kcm:kcm_recentFiles" },
+            { glyph: g(0xF075), label: "User Feedback",          action: "kcm:kcm_feedback" },
+        ]},
+        { glyph: icoStartup,  label: "Startup & Shutdown", children: [
+            { glyph: g(0xF04B), label: "Autostart",           action: "kcm:kcm_autostart" },
+            { glyph: g(0xF085), label: "Background Services",  action: "kcm:kcm_kded" },
+            { glyph: g(0xF08B), label: "Desktop Session",      action: "kcm:kcm_smserver" },
+            { glyph: g(0xF007), label: "Login Screen",         action: "kcm:kcm_sddm" },
+        ]},
+        { glyph: icoLang,     label: "Language & Time", children: [
+            { glyph: g(0xF1AB), label: "Region & Language", action: "kcm:kcm_regionandlang" },
+            { glyph: g(0xF017), label: "Date & Time",       action: "kcm:kcm_clock" },
+            { glyph: g(0xF00C), label: "Spell Check",       action: "kcm:kcmspellchecking" },
+        ]},
+        { glyph: icoUsers,    label: "Users",             action: "kcm:kcm_users" },
+        { glyph: icoInfo,     label: "About This System", action: "kcm:kcm_about-distro" },
+        { glyph: icoAllSet,   label: "Open Full System Settings", action: "settings" },
+        // ---- omasteam chrome ----
+        { glyph: icoStyle,   label: "Style", children: [
+            { glyph: g(0xF03E), label: "Next Wallpaper", action: "wallpaper-next" },
+            { glyph: g(0xF1FC), label: "Themes",         children: themeChildren() },
+        ]},
         { glyph: icoCapture, label: "Capture", children: [
             { glyph: g(0xF125), label: "Screenshot Region", action: "shot-region" },
             { glyph: g(0xF2D0), label: "Screenshot Window", action: "shot-window" },
             { glyph: g(0xF108), label: "Screenshot Full",   action: "shot-full" },
             { glyph: g(0xF03D), label: "Record Screen",     action: "record" },
         ]},
-        { glyph: icoStyle,   label: "Style",   children: [
-            { glyph: g(0xF03E), label: "Next Wallpaper", action: "wallpaper-next" },
-            { glyph: g(0xF1FC), label: "Themes",         children: themeChildren() },
-        ]},
-        { glyph: icoSetup,   label: "Setup",   children: [
-            { glyph: g(0xF1EB), label: "Wi-Fi",      action: "wifi" },
-            { glyph: g(0xF294), label: "Bluetooth",  action: "bluetooth" },
-            { glyph: g(0xF028), label: "Audio",      action: "audio" },
-            { glyph: g(0xF108), label: "Display",    action: "display" },
-            { glyph: g(0xF186), label: "Night Light",action: "nightlight" },
-        ]},
-        { glyph: icoSystem,  label: "System",  children: [
+        { glyph: icoSystem,  label: "Power", children: [
             { glyph: g(0xF023), label: "Lock",             action: "lock" },
             { glyph: g(0xF186), label: "Suspend",          action: "suspend" },
             { glyph: g(0xF08B), label: "Log Out",          action: "logout" },
