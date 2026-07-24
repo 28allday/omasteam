@@ -219,7 +219,34 @@ install_krohnkite() {
     "kcmshell6,plasmawindowed,org.kde.plasmawindowed,systemsettings"
   # Floating windows open centered (matches the menu/launcher cards).
   kwriteconfig6 --file kwinrc --group Windows --key Placement Centered
+  # Cap the settings windows' initial size ("apply initially" rules). A window
+  # that ever ran tiled remembers that huge geometry and would reopen looking
+  # fullscreen even as a float; these rules give them sane sizes instead. The
+  # kcmshell6 rule only matches the generic shell window (individual modules
+  # get class kcm_<module> and pick good natural sizes on their own).
+  kwr() { kwriteconfig6 --file kwinrulesrc --group "$1" --key "$2" "$3"; }
+  # Merge our rule ids into the existing rule index instead of clobbering it.
+  local rules
+  rules="$(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null || true)"
+  for id in omasteam-kcm omasteam-syset; do
+    case ",$rules," in *",$id,"*) ;; *) rules="${rules:+$rules,}$id" ;; esac
+  done
+  kwr General rules "$rules"
+  kwr General count "$(awk -F, '{print NF}' <<<"$rules")"
+  kwr omasteam-kcm Description "omasteam: generic kcmshell window opens at a sane size"
+  kwr omasteam-kcm size "1200,800";  kwr omasteam-kcm sizerule 3
+  kwr omasteam-kcm wmclass kcmshell6; kwr omasteam-kcm wmclassmatch 1
+  kwr omasteam-kcm wmclasscomplete false; kwr omasteam-kcm types 1
+  kwr omasteam-syset Description "omasteam: System Settings opens at a sane size"
+  kwr omasteam-syset size "1400,900"; kwr omasteam-syset sizerule 3
+  kwr omasteam-syset wmclass systemsettings; kwr omasteam-syset wmclassmatch 1
+  kwr omasteam-syset wmclasscomplete false; kwr omasteam-syset types 1
   qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || true
+  # A running Krohnkite only reads its config at script load, and a plain
+  # reconfigure (or plugin-flag toggle) does NOT force a re-read — unload the
+  # script and let Scripting.start reload it, so config changes apply live.
+  qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript krohnkite >/dev/null 2>&1 || true
+  qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.start 2>/dev/null || true
   ok "Krohnkite installed + enabled"
 }
 
