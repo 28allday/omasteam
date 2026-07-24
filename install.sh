@@ -538,6 +538,7 @@ Icon=applications-system
 Terminal=false
 Categories=System;
 NoDisplay=true
+StartupNotify=false
 EOF
   update-desktop-database ~/.local/share/applications 2>/dev/null || true
   # Bind Meta+Alt+Space -> the menu launcher. A brand-new .desktop can't bind
@@ -577,6 +578,7 @@ Icon=applications-all
 Terminal=false
 Categories=System;
 NoDisplay=true
+StartupNotify=false
 EOF
   update-desktop-database ~/.local/share/applications 2>/dev/null || true
   # Bind Meta+Space -> the app launcher (krunner is moved to Alt+Space only in
@@ -659,16 +661,17 @@ configure_panel() {
       'var p = panels(); for (var i = 0; i < p.length; i++) { p[i].location = "top"; }' >/dev/null 2>&1 \
       && ok "Plasma panel moved to top" || warn "could not move panel (plasmashell not running?)"
   fi
-  # No launch feedback: kill the bouncing busy-cursor (and taskbar pulse) shown
-  # while an app starts — e.g. the cog that bounces after picking a settings
-  # entry in the omasteam menu. On Plasma 6 Wayland the feedback is drawn by
-  # PLASMASHELL, which reads klaunchrc only at startup — restart it (after the
-  # panel scripting above; the layout persists in appletsrc) so the change
-  # applies now instead of at the next login.
+  # No launch feedback: kill the bouncing busy-cursor shown while an app starts
+  # (e.g. the cog after picking a settings entry in the omasteam menu). The
+  # cursor is drawn by KWin's "startupfeedback" EFFECT, and a running KWin does
+  # not reliably re-read klaunchrc — so disable the effect itself (live unload
+  # + persisted plugin flag). klaunchrc is written too for any other reader.
   kwriteconfig6 --file klaunchrc --group FeedbackStyle --key BusyCursor false
   kwriteconfig6 --file klaunchrc --group FeedbackStyle --key TaskbarButton false
   kwriteconfig6 --file klaunchrc --group BusyCursorSettings --key Bouncing false
-  systemctl --user restart plasma-plasmashell.service >/dev/null 2>&1 || true
+  kwriteconfig6 --file kwinrc --group Plugins --key startupfeedbackEnabled false
+  qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.unloadEffect startupfeedback >/dev/null 2>&1 || true
+  qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
   ok "Launch feedback disabled (no bouncing cursor)"
 }
 
@@ -697,6 +700,7 @@ Icon=preferences-desktop-wallpaper
 Terminal=false
 NoDisplay=true
 Categories=Utility;
+StartupNotify=false
 EOF
   update-desktop-database ~/.local/share/applications 2>/dev/null || true
   kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
