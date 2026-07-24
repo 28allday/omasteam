@@ -629,6 +629,14 @@ EOF
 # Move the Plasma panel (taskbar) to the top of the screen (Omarchy-style)
 # ----------------------------------------------------------------------------
 configure_panel() {
+  # No launch feedback: kill the bouncing busy-cursor (and taskbar pulse) shown
+  # while an app starts — e.g. the cog that bounces after picking a settings
+  # entry in the omasteam menu. Read by KWin's startup-feedback on Wayland.
+  kwriteconfig6 --file klaunchrc --group FeedbackStyle --key BusyCursor false
+  kwriteconfig6 --file klaunchrc --group FeedbackStyle --key TaskbarButton false
+  kwriteconfig6 --file klaunchrc --group BusyCursorSettings --key Bouncing false
+  have qdbus6 && qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1
+  ok "Launch feedback disabled (no bouncing cursor)"
   # Plasma Style -> Breeze "default" so the panel/taskbar FOLLOWS the color scheme.
   # (SteamOS ships the fixed "Vapor" style, which ignores themes — panel never recolors.)
   if have plasma-apply-desktoptheme; then
