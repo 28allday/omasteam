@@ -19,14 +19,17 @@ Window {
     id: win
     visible: true
     color: "transparent"
-    // Explicit full-screen size — a plain qmlscene Window with org.kde.layershell
-    // does NOT derive its size from the all-edge anchors (unlike Quickshell's
-    // PanelWindow); without this it falls back to a centered ~3/4 box and the
-    // scrim leaves a transparent margin. (See omasteam-menu.qml for the full note.)
-    width: Screen.width
-    height: Screen.height
+    // PANEL-SIZED surface: anchors must be EXPLICITLY AnchorNone (LayerShellQt
+    // defaults to all four edges, which stretches the surface over the whole
+    // output regardless of width/height) — the compositor then centers it and
+    // the card fills the surface, so no scrim is needed and nothing can ghost.
+    // The size must also be static and nonzero at creation; full note in
+    // omasteam-menu.qml. 432 = header 40 + spacing 8 + 9 rows × 40 + margins 24.
+    width: 460
+    height: 432
 
-    LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
+    LayerShell.Window.anchors: LayerShell.Window.AnchorNone
+
     LayerShell.Window.layer: LayerShell.Window.LayerOverlay
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityExclusive
 
@@ -43,8 +46,8 @@ Window {
     readonly property string icoSearch: g(0xF002)  // magnifier
     readonly property string icoApp:    g(0xF135)  // rocket (generic app glyph)
 
-    // Poll the palette ONCE at open (see omasteam-menu.qml: repeated repaints
-    // accumulate the scrim on this transparent overlay). The launcher is transient.
+    // Poll the palette ONCE at open — the launcher is transient, no need to
+    // keep re-reading state.json while it's up.
     property string _lastRaw: ""
     function poll() {
         if (!statePath) return
@@ -105,21 +108,12 @@ Window {
     }
 
     // ---- surface -------------------------------------------------------------
-    // Full-window scrim (matches the menu): dims the desktop ~40% AND forces a
-    // full repaint each frame so a shrinking filtered list can't ghost.
-    Rectangle {
-        anchors.fill: parent
-        color: win.alpha(win.cBg, 0.4)
-    }
-    MouseArea { anchors.fill: parent; onClicked: Qt.quit() }
-
+    // No scrim and no dismiss backdrop — the surface is panel-sized, so there
+    // is nothing outside the card to paint or click. Esc closes.
     Rectangle {
         id: panel
-        anchors.centerIn: parent
-        width: 460
-        // 24 = the Column's top+bottom margins; inner.spacing sits between the
-        // header and the list (without it the list overflowed the bottom margin).
-        height: header.height + inner.spacing + list.contentHeightClamped + 24
+        // The card fills the fixed-size surface — see the Window size note.
+        anchors.fill: parent
         radius: 14
         color: win.cBg
         border.color: win.alpha(win.cFg, 0.12)
@@ -166,8 +160,8 @@ Window {
                             clip: true
                             onTextChanged: win.filter = text
                             Component.onCompleted: forceActiveFocus()
-                            // Static (non-blinking) cursor — a blinking cursor
-                            // repaints ~1×/sec and would accumulate the scrim.
+                            // Static (non-blinking) cursor — no reason to repaint
+                            // the surface once a second while the launcher idles.
                             cursorDelegate: Rectangle { width: 2; color: win.cAccent }
 
                             Text {

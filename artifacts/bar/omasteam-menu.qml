@@ -21,20 +21,33 @@ Window {
     id: win
     visible: true
     color: "transparent"
-    // MUST set an explicit full-screen size. Unlike Quickshell's PanelWindow
-    // (what Omarchy uses), a plain qmlscene Window with org.kde.layershell does
-    // NOT derive its size from the all-edge anchors — with no width/height it
-    // falls back to a default (~3/4 screen) and renders as a centered box, so the
-    // scrim leaves a transparent margin all around. Pinning Screen.width/height
-    // makes the layer surface cover the whole output. (Verified with a bordered
-    // probe: the green frame sat on all four screen edges only once these were set.)
-    width: Screen.width
-    height: Screen.height
+    // PANEL-SIZED surface (Omarchy-style undimmed float): anchors are
+    // explicitly AnchorNone — LayerShellQt's DEFAULT anchors are all four
+    // edges, so merely omitting the property stretches the surface across the
+    // whole output no matter what width/height we request (symptom: a frozen
+    // snapshot of the desktop filling the transparent margin around the card).
+    // Unanchored, the compositor centers the surface and the surface IS the
+    // card. No full-screen scrim is needed anymore: ghosting and
+    // scrim-accumulation only ever happened on the
+    // transparent full-screen surface (stale partial updates in the margin
+    // around the card); a panel-sized surface has no transparent margin to go
+    // stale. The "desktop corruption" seen while testing this shape turned out
+    // to be a pre-existing repaint-load display artifact — it reproduces with
+    // no overlay running at all (control test 2026-07-24).
+    //
+    // The size MUST be static and nonzero at creation. A binding that resolves
+    // only after startup (height: panel.height is 0 until the list lays out)
+    // makes qmlscene map the wayland surface at its ~3/4-screen default size
+    // and never re-configure it — and the transparent margin inside that
+    // surface shows a FROZEN snapshot of the desktop. So the card is
+    // constant-size (rofi-style; fewer rows just leave empty card below) and
+    // fills the surface exactly: 432 = header 40 + spacing 8 + 9 rows × 40 +
+    // Column margins 24.
+    width: 460
+    height: 432
 
-    LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
+    LayerShell.Window.anchors: LayerShell.Window.AnchorNone
     LayerShell.Window.layer: LayerShell.Window.LayerOverlay
-    // Don't set exclusionZone: -1 — under org.kde.layershell + qmlscene it makes
-    // the box problem worse, not better. The explicit size above is what fills.
     // Grab the keyboard while the menu is up (the bar uses None; the menu is modal).
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityExclusive
 
@@ -52,11 +65,8 @@ Window {
     function alpha(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }
 
     // Only reassign win.st when state.json actually CHANGED. Reassigning it every
-    // tick (even to identical values) re-dirties the palette bindings, which
-    // repaints the full-window scrim — and on this transparent layer-shell surface
-    // a scrim repaint blends over the previous frame instead of replacing it, so
-    // the dim slowly accumulates toward opaque ("the background keeps getting
-    // darker"). Skipping the no-op reassignment keeps the scrim static.
+    // tick (even to identical values) re-dirties the palette bindings and forces
+    // a pointless full repaint each tick; skip the no-op.
     property string _lastRaw: ""
     function poll() {
         if (!statePath) return
@@ -283,34 +293,17 @@ Window {
     }
 
     // ---- surface -------------------------------------------------------------
-    // Full-window scrim, exactly like Omarchy quattro's menu: its Menu.qml paints
-    // a `color: root.scrim` rectangle behind the card, where scrim = the theme
-    // background at scrim-alpha 0.5 (Color.qml + shell.toml). Two jobs:
-    //   1. matches the reference look — Omarchy dims the desktop ~50% behind the
-    //      menu (it is NOT an undimmed float);
-    //   2. this painted full-window node forces a full repaint every frame, which
-    //      is what stops a shrinking panel from ghosting. With a fully transparent
-    //      backdrop, QtQuick's partial (damaged-region) updates leave the strip a
-    //      shrinking/back-navigating panel vacates un-cleared, so old rows linger.
-    Rectangle {
-        anchors.fill: parent
-        color: win.alpha(win.cBg, 0.4)
-    }
-    // Click anywhere outside the panel dismisses (the panel absorbs its own clicks).
-    MouseArea { anchors.fill: parent; onClicked: Qt.quit() }
-
+    // No scrim and no dismiss backdrop — the surface is panel-sized, so there
+    // is nothing outside the card to paint or click. Esc closes.
     Rectangle {
         id: panel
-        anchors.centerIn: parent
-        width: 460
-        // 24 = the Column's top+bottom margins; inner.spacing sits between the
-        // header and the list (without it the list overflowed the bottom margin).
-        height: header.height + inner.spacing + list.contentHeightClamped + 24
+        // The card fills the fixed-size surface — see the Window size note.
+        anchors.fill: parent
         radius: 14
         color: win.cBg
         border.color: win.alpha(win.cFg, 0.12)
         border.width: 1
-        // Absorb clicks so they don't fall through to the dismiss backdrop.
+        // Absorb stray clicks on the card.
         MouseArea { anchors.fill: parent }
 
         Column {
@@ -354,9 +347,8 @@ Window {
                             clip: true
                             onTextChanged: win.filter = text
                             Component.onCompleted: forceActiveFocus()
-                            // Static (non-blinking) cursor. A blinking cursor repaints
-                            // ~1×/sec, and on this transparent layer-shell surface any
-                            // repaint re-blends the scrim and darkens it over time.
+                            // Static (non-blinking) cursor — no reason to repaint
+                            // the surface once a second while the menu idles.
                             cursorDelegate: Rectangle { width: 2; color: win.cAccent }
 
                             // Placeholder / breadcrumb hint when empty.
