@@ -129,6 +129,11 @@ EOF
     cset Tooltip       "$BG"  "$ALT"  "$FG"
     cset Complementary "$BG"  "$ALT"  "$FG"
     cset Header        "$BG"  "$ALT"  "$FG"   # <- fixes the systemsettings sidebar
+    # The ColorEffects groups below are REQUIRED: without them
+    # plasma-apply-colorscheme leaves empty-valued [ColorEffects:Inactive] keys
+    # in kdeglobals, and the resulting effect tints every UNFOCUSED window's
+    # backgrounds blue-ish. Stock Breeze values; Enable=false keeps inactive
+    # windows at the active colors like Breeze does.
     cat <<EOF
 
 [Colors:Selection]
@@ -144,6 +149,27 @@ ForegroundNeutral=$NEU
 ForegroundPositive=$POS
 DecorationFocus=$AC
 DecorationHover=$AC
+
+[ColorEffects:Disabled]
+ChangeSelectionColor=
+Color=56,56,56
+ColorAmount=0
+ColorEffect=0
+ContrastAmount=0.65
+ContrastEffect=1
+IntensityAmount=0.1
+IntensityEffect=2
+
+[ColorEffects:Inactive]
+ChangeSelectionColor=true
+Color=112,111,110
+ColorAmount=0.025
+ColorEffect=2
+ContrastAmount=0.1
+ContrastEffect=2
+Enable=false
+IntensityAmount=0
+IntensityEffect=0
 
 [Colors:Header][Inactive]
 BackgroundNormal=$BG
