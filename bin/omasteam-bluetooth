@@ -1,0 +1,186 @@
+#!/bin/bash
+# omasteam-bluetooth — Omarchy-quattro-style bluetooth panel for SteamOS + KDE.
+#
+# Opened from the bar's bluetooth chip. Same pure-userland approach as the
+# other bar surfaces — stock Qt6 + org.kde.layershell via qmlscene.
+#
+# This script is BOTH the launcher and the backend: the QML panel pushes
+# actions to a SQLite outbox (table `bt_outbox`) which this script polls
+# WHILE the panel is up, driving bluetoothctl. Pair/connect take seconds, so
+# it also keeps bt-state.json fresh (after every action + every few seconds)
+# and the panel re-polls that file — rows flip to "connected" on their own.
+#
+# Launching again while the panel is up closes it (bar-chip toggle).
+set -uo pipefail
+
+export PATH="$HOME/.local/bin:$PATH"
+
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+QML=""
+for cand in \
+  "$HERE/../artifacts/bar/omasteam-bluetooth.qml" \
+  "$HOME/.local/share/omasteam/bar/omasteam-bluetooth.qml"; do
+  [ -f "$cand" ] && { QML="$cand"; break; }
+done
+[ -n "$QML" ] || { echo "omasteam-bluetooth: cannot find omasteam-bluetooth.qml" >&2; exit 1; }
+
+QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
+[ -n "$QMLSCENE" ] || { echo "omasteam-bluetooth: qmlscene not found" >&2; exit 1; }
+command -v bluetoothctl >/dev/null || { echo "omasteam-bluetooth: bluetoothctl not found" >&2; exit 1; }
+
+BAR_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar/state.json"
+BT_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bluetooth"
+mkdir -p "$BT_DIR"
+RENDERED="$BT_DIR/omasteam-bluetooth.rendered.qml"
+BT_STATE="$BT_DIR/bt-state.json"
+
+# ---- single-instance toggle (PID file — see omasteam-volume for why) --------
+PIDFILE="$BT_DIR/panel.pid"
+oldpid="$(cat "$PIDFILE" 2>/dev/null || true)"
+if [ -n "$oldpid" ] && grep -aq "omasteam-bluetooth.rendered.qml" "/proc/$oldpid/cmdline" 2>/dev/null; then
+  kill "$oldpid" 2>/dev/null
+  rm -f "$PIDFILE"
+  exit 0
+fi
+rm -f "$PIDFILE"
+
+# ---- bluetooth state -> bt-state.json ---------------------------------------
+# bluetoothctl echoes interactive [NEW]/[CHG] event lines (with ANSI colors)
+# into list output, so parse ONLY lines shaped `Device <MAC> <name>`.
+strip_ansi() { sed 's/\x1b\[[0-9;]*m//g'; }
+SCANNING=0
+
+dev_lines() { # $1 = "", "Paired" or "Connected" -> "MAC<TAB>name" lines
+  # shellcheck disable=SC2086
+  bluetoothctl devices $1 2>/dev/null | strip_ansi \
+    | grep -E '^Device ([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2} ' \
+    | sed -E 's/^Device (([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}) /\1\t/'
+}
+
+regen_state() {
+  # mktemp, NOT a "$$"-suffixed name: $$ is the MAIN shell's pid even inside
+  # the background subshells that call this, so concurrent regens (scan loop
+  # + periodic tick) would collide on one temp file and lose writes.
+  local powered=false tmp
+  tmp=$(mktemp "$BT_STATE.XXXXXX") || return
+  bluetoothctl show 2>/dev/null | strip_ansi | grep -q 'Powered: yes' && powered=true
+  # rows: connected TAB paired TAB mac TAB b64label (label base64d in jq so no
+  # device-name byte can break the framing)
+  {
+    local mac label
+    local paired_macs conn_macs
+    paired_macs="$(dev_lines Paired | cut -f1)"
+    conn_macs="$(dev_lines Connected | cut -f1)"
+    while IFS=$'\t' read -r mac label; do
+      [ -n "$mac" ] || continue
+      printf '%s\t%s\t%s\t%s\n' \
+        "$(grep -qxF "$mac" <<<"$conn_macs" && echo 1 || echo 0)" \
+        "$(grep -qxF "$mac" <<<"$paired_macs" && echo 1 || echo 0)" \
+        "$mac" "$(printf '%s' "$label" | base64 -w0)"
+    done < <(dev_lines "")
+  } | jq -R -s --argjson p "$powered" --argjson sc "$([ "$SCANNING" = 1 ] && echo true || echo false)" \
+      '{ powered: $p, scanning: $sc,
+         devs: ([split("\n")[] | select(length > 0) | split("\t")
+           | { connected: (.[0] == "1"), paired: (.[1] == "1"),
+               mac: .[2], label: (.[3] | @base64d) }
+           # Hide discovered devices whose only "name" is their address
+           # (BLE randoms) — quattro filters the same way. Paired ones stay.
+           | select(.paired or ((.label | test("^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$")) | not))]
+           | sort_by([(.connected | not), (.paired | not), .label])) }' \
+    > "$tmp" && mv -f "$tmp" "$BT_STATE" || rm -f "$tmp"
+}
+
+# ---- render self-contained temp QML (values via ENVIRON — see omasteam-apps)
+render() {
+  QML_STATE="$BAR_STATE" QML_BTSTATE="$BT_STATE" awk '
+    function subst(line, ph, v,    out, p) {
+      out = ""
+      p = index(line, ph)
+      while (p > 0) {
+        out = out substr(line, 1, p - 1) v
+        line = substr(line, p + length(ph))
+        p = index(line, ph)
+      }
+      return out line
+    }
+    { line = $0
+      line = subst(line, "@@STATE@@",   ENVIRON["QML_STATE"])
+      line = subst(line, "@@BTSTATE@@", ENVIRON["QML_BTSTATE"])
+      print line
+    }' "$QML" > "$RENDERED"
+}
+
+# ---- SQLite outbox (table `bt_outbox`) --------------------------------------
+drain_outbox() { # $1 = 1 to emit, 0 to purge silently
+  command -v sqlite3 >/dev/null || return
+  local db c emit="$1"
+  while IFS= read -r db; do
+    [ -f "$db" ] || continue
+    sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='bt_outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
+    if [ "$emit" = 1 ]; then
+      while IFS= read -r c; do [ -n "$c" ] && printf '%s\n' "$c"; done \
+        < <(sqlite3 "$db" "SELECT cmd FROM bt_outbox ORDER BY id;" 2>/dev/null)
+    fi
+    sqlite3 "$db" "DELETE FROM bt_outbox;" 2>/dev/null
+  done < <(find "$HOME/.local/share/QtProject" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+}
+
+valid_mac() { case "$1" in [0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]) return 0 ;; *) return 1 ;; esac; }
+
+do_scan() { # discover for ~6 s, refreshing the list as devices appear
+  SCANNING=1; regen_state
+  ( bluetoothctl --timeout 6 scan on >/dev/null 2>&1 ) &
+  local sp=$!
+  while kill -0 "$sp" 2>/dev/null; do sleep 1.5; regen_state; done
+  SCANNING=0; regen_state
+}
+
+run_bt_cmd() {
+  # Slow verbs run in the background so the drain loop stays live; each one
+  # regenerates the state file when it lands so the panel catches up.
+  local cmd="$1" mac
+  case "$cmd" in
+    bt-on)  ( bluetoothctl power on  >/dev/null 2>&1; sleep 1; regen_state ) & ;;
+    bt-off) ( bluetoothctl power off >/dev/null 2>&1; regen_state ) & ;;
+    scan)   do_scan & ;;
+    connect:*)
+      mac="${cmd#connect:}"; valid_mac "$mac" || return
+      ( bluetoothctl connect "$mac" >/dev/null 2>&1; regen_state ) & ;;
+    disconnect:*)
+      mac="${cmd#disconnect:}"; valid_mac "$mac" || return
+      ( bluetoothctl disconnect "$mac" >/dev/null 2>&1; regen_state ) & ;;
+    pair:*)
+      mac="${cmd#pair:}"; valid_mac "$mac" || return
+      ( bluetoothctl pair "$mac" >/dev/null 2>&1
+        bluetoothctl trust "$mac" >/dev/null 2>&1
+        bluetoothctl connect "$mac" >/dev/null 2>&1
+        regen_state ) & ;;
+    "") : ;;
+    *)  echo "omasteam-bluetooth: unknown action '$cmd'" >&2 ;;
+  esac
+}
+
+# ---- run --------------------------------------------------------------------
+regen_state                      # snapshot before first paint
+render
+# Kick off a discovery scan on open if the radio is already up.
+bluetoothctl show 2>/dev/null | strip_ansi | grep -q 'Powered: yes' && do_scan &
+
+drain_outbox 0                   # purge anything stale first
+QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}" \
+QT_WAYLAND_SHELL_INTEGRATION=layer-shell \
+QML_XHR_ALLOW_FILE_READ=1 \
+  "$QMLSCENE" "$RENDERED" >/dev/null 2>&1 &
+QPID=$!
+echo "$QPID" > "$PIDFILE"
+
+# Live dispatch while the panel is up + periodic refresh (~6 s).
+tick=0
+while kill -0 "$QPID" 2>/dev/null; do
+  while IFS= read -r c; do run_bt_cmd "$c"; done < <(drain_outbox 1)
+  tick=$((tick + 1))
+  [ $((tick % 24)) -eq 0 ] && regen_state
+  sleep 0.25
+done
+rm -f "$PIDFILE"
+while IFS= read -r c; do run_bt_cmd "$c"; done < <(drain_outbox 1)

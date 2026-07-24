@@ -42,6 +42,9 @@ Window {
     readonly property string icoWifi:    ""
     readonly property string icoApps:  String.fromCodePoint(0xF00A)   // th (grid) — app launcher
     readonly property string icoEth:   String.fromCodePoint(0xF0200)  // md-ethernet
+    readonly property string icoBt:     String.fromCodePoint(0xF00AF)  // md-bluetooth
+    readonly property string icoBtConn: String.fromCodePoint(0xF00B1)  // md-bluetooth-connect
+    readonly property string icoBtOff:  String.fromCodePoint(0xF00B2)  // md-bluetooth-off
     readonly property string icoNoNet:   ""
     readonly property string icoVol:     ""
     readonly property string icoVolLow:  ""
@@ -180,6 +183,15 @@ Window {
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 1; height: 14; color: win.alpha(win.cFg, 0.15)
+            }
+
+            // bluetooth
+            Chip {
+                readonly property var bt: win.st.bt || ({ on: false, name: "" })
+                glyph: bt.name ? win.icoBtConn : (bt.on ? win.icoBt : win.icoBtOff)
+                label: bt.name || ""
+                glyphColor: bt.on ? win.cFg : win.alpha(win.cFg, 0.45)
+                onClicked: win.sendCmd("bt-panel")
             }
 
             // network

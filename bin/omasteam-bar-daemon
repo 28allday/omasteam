@@ -95,6 +95,24 @@ network_json() {
   printf '"net":{"type":"none","name":""}'
 }
 
+bluetooth_json() {
+  # {"on":bool,"name":"<first connected device or empty>"} — bluetoothctl
+  # echoes colored [NEW]/[CHG] event lines into list output, so only lines
+  # shaped `Device <MAC> <name>` count. Names are JSON-escaped like SSIDs.
+  local on=false name=""
+  if command -v bluetoothctl >/dev/null; then
+    bluetoothctl show 2>/dev/null | grep -q 'Powered: yes' && on=true
+    if [ "$on" = true ]; then
+      name=$(bluetoothctl devices Connected 2>/dev/null \
+        | sed 's/\x1b\[[0-9;]*m//g' \
+        | grep -m1 -E '^Device ([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2} ' \
+        | cut -d' ' -f3-)
+      name="${name//\\/\\\\}"; name="${name//\"/\\\"}"
+    fi
+  fi
+  printf '"bt":{"on":%s,"name":"%s"}' "$on" "$name"
+}
+
 # KWin's VirtualDesktopManager.desktops is a(uss) (position,id,name) which plain
 # qdbus6 can't print — only `--literal` does. The literal output lists desktops
 # in position order, so the UUIDs appear in order too. Emit one id per line.
@@ -132,6 +150,7 @@ write_state() {
     printf '"time":"%s","day":"%s","date":"%s",' "$now" "$day" "$date_l"
     printf '%s,' "$(volume_json)"
     printf '%s,' "$(network_json)"
+    printf '%s,' "$(bluetooth_json)"
     printf '%s,' "$(battery_json)"
     printf '%s,' "$(desktops_json)"
     printf '"colors":{"bg":"#%s","fg":"#%s","accent":"#%s"}' "$bg" "$fg" "$ac"
@@ -156,6 +175,11 @@ run_cmd() {
               # Fall back to the Plasma NM applet if not installed.
               if command -v omasteam-network >/dev/null; then omasteam-network 2>/dev/null &
               else plasmawindowed org.kde.plasma.networkmanagement >/dev/null 2>&1 & fi ;;
+    bt-panel)
+              # Tap on the bluetooth chip: toggle the omasteam bluetooth panel.
+              # Fall back to the Plasma bluetooth applet if not installed.
+              if command -v omasteam-bluetooth >/dev/null; then omasteam-bluetooth 2>/dev/null &
+              else plasmawindowed org.kde.plasma.bluetooth >/dev/null 2>&1 & fi ;;
     desktop-*)
               # The bar sends a 1-based position; KWin switches by id, so map it.
               # Guard the index: a non-number breaks the arithmetic, and 0 would

@@ -114,7 +114,11 @@ nets_json() { # wifi list -> [{ssid,signal,secured,known,active}] (strongest per
 }
 
 regen_state() {
-  local wifi=false tmp="$NET_STATE.tmp.$$"
+  # mktemp, NOT a "$$"-suffixed name: $$ is the MAIN shell's pid even inside
+  # the background subshells that call this, so concurrent regens (action
+  # completions + periodic tick) would collide on one temp file.
+  local wifi=false tmp
+  tmp=$(mktemp "$NET_STATE.XXXXXX") || return
   [ "$(nmcli radio wifi 2>/dev/null)" = "enabled" ] && wifi=true
   printf '{"wifi":%s,"conn":%s,"nets":%s}' \
     "$wifi" "$(conn_json)" "$(nets_json 2>/dev/null || echo '[]')" > "$tmp" \
