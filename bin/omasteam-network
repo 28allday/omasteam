@@ -1,0 +1,216 @@
+#!/bin/bash
+# omasteam-network — Omarchy-quattro-style network panel for SteamOS + KDE.
+#
+# Opened from the bar's network chip. Same pure-userland approach as the rest
+# of the bar surfaces — stock Qt6 + org.kde.layershell via qmlscene.
+#
+# This script is BOTH the launcher and the backend: the QML panel pushes
+# actions to a SQLite outbox (table `net_outbox`) which this script polls
+# WHILE the panel is up, driving nmcli. Because connects/scans take seconds,
+# it also keeps net-state.json fresh (after every action + every few seconds)
+# and the panel re-polls that file, so rows flip to "connected" on their own.
+#
+# Launching again while the panel is up closes it (bar-chip toggle).
+set -uo pipefail
+
+export PATH="$HOME/.local/bin:$PATH"
+
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+QML=""
+for cand in \
+  "$HERE/../artifacts/bar/omasteam-network.qml" \
+  "$HOME/.local/share/omasteam/bar/omasteam-network.qml"; do
+  [ -f "$cand" ] && { QML="$cand"; break; }
+done
+[ -n "$QML" ] || { echo "omasteam-network: cannot find omasteam-network.qml" >&2; exit 1; }
+
+QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
+[ -n "$QMLSCENE" ] || { echo "omasteam-network: qmlscene not found" >&2; exit 1; }
+command -v nmcli >/dev/null || { echo "omasteam-network: nmcli not found" >&2; exit 1; }
+
+BAR_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar/state.json"
+NET_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-network"
+mkdir -p "$NET_DIR"
+RENDERED="$NET_DIR/omasteam-network.rendered.qml"
+NET_STATE="$NET_DIR/net-state.json"
+
+# ---- single-instance toggle (PID file — see omasteam-volume for why) --------
+PIDFILE="$NET_DIR/panel.pid"
+oldpid="$(cat "$PIDFILE" 2>/dev/null || true)"
+if [ -n "$oldpid" ] && grep -aq "omasteam-network.rendered.qml" "/proc/$oldpid/cmdline" 2>/dev/null; then
+  kill "$oldpid" 2>/dev/null
+  rm -f "$PIDFILE"
+  exit 0
+fi
+rm -f "$PIDFILE"
+
+# ---- network state -> net-state.json ----------------------------------------
+# nmcli -t escapes ':' inside fields as '\:', so every multi-field parse keeps
+# the free-text field LAST and splits only the leading fixed fields.
+unescape() { sed 's/\\:/:/g; s/\\\\/\\/g'; }
+
+wifi_dev() { # first wifi device name
+  nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2=="wifi"{print $1; exit}'
+}
+
+conn_json() { # active connection -> {"type":...,"label":...,"detail":...,"signal":n}
+  local dev type state rest label detail sig
+  while IFS=: read -r dev type state rest; do
+    case "$type" in
+      ethernet)
+        if [ "$state" = "connected" ]; then
+          label="$(printf '%s' "$rest" | unescape)"
+          detail=""
+          local spd; spd="$(cat "/sys/class/net/$dev/speed" 2>/dev/null || true)"
+          case "$spd" in
+            ''|*[!0-9]*) : ;;
+            *) if [ "$spd" -ge 1000 ]; then detail="$((spd / 1000))gbit"; else detail="${spd}mbit"; fi ;;
+          esac
+          jq -cn --arg l "${label:-Wired}" --arg d "$detail" '{type:"ethernet",label:$l,detail:$d,signal:0}'
+          return
+        fi ;;
+      wifi)
+        if [ "$state" = "connected" ]; then
+          # SIGNAL/FREQ/SSID of the in-use network
+          local line
+          line="$(nmcli -t -f IN-USE,SIGNAL,FREQ,SSID device wifi list --rescan no 2>/dev/null | grep '^\*' | head -1)"
+          sig="$(printf '%s' "$line" | cut -d: -f2)"
+          detail="$(printf '%s' "$line" | cut -d: -f3 | awk '{v=$1+0; if (v>=5925) print "6ghz"; else if (v>=4900) print "5ghz"; else if (v>=2400) print "2.4ghz"; else print ""}')"
+          label="$(printf '%s' "$line" | cut -d: -f4- | unescape)"
+          jq -cn --arg l "${label:-WiFi}" --arg d "$detail" --argjson s "${sig:-0}" '{type:"wifi",label:$l,detail:$d,signal:$s}'
+          return
+        fi ;;
+    esac
+  done < <(nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status 2>/dev/null)
+  printf '{"type":"none","label":"","detail":"","signal":0}'
+}
+
+nets_json() { # wifi list -> [{ssid,signal,secured,known,active}] (strongest per SSID)
+  local known
+  known="$(nmcli -t -f TYPE,NAME connection show 2>/dev/null | awk -F: '$1=="802-11-wireless"' | cut -d: -f2- | unescape)"
+  # rows: active TAB signal TAB secured TAB b64ssid  (ssid base64d in jq so no
+  # byte in an SSID can break the framing)
+  nmcli -t -f IN-USE,SIGNAL,SECURITY,SSID device wifi list --rescan no 2>/dev/null | {
+    while IFS= read -r line; do
+      local inuse sig sec ssid k=0
+      inuse="$(printf '%s' "$line" | cut -d: -f1)"
+      sig="$(printf '%s' "$line" | cut -d: -f2)"
+      sec="$(printf '%s' "$line" | cut -d: -f3)"
+      ssid="$(printf '%s' "$line" | cut -d: -f4- | unescape)"
+      [ -n "$ssid" ] || continue
+      case "$sig" in ''|*[!0-9]*) sig=0 ;; esac
+      grep -qxF "$ssid" <<<"$known" && k=1
+      printf '%s\t%s\t%s\t%s\t%s\n' \
+        "$([ "$inuse" = '*' ] && echo 1 || echo 0)" "$sig" \
+        "$([ "$sec" != "" ] && [ "$sec" != "--" ] && echo 1 || echo 0)" "$k" \
+        "$(printf '%s' "$ssid" | base64 -w0)"
+    done
+  } | sort -t$'\t' -k2,2 -rn | awk -F'\t' '!seen[$5]++' \
+    | jq -R -s '[split("\n")[] | select(length > 0) | split("\t")
+        | { active: (.[0] == "1"), signal: (.[1] | tonumber),
+            secured: (.[2] == "1"), known: (.[3] == "1"),
+            ssid: (.[4] | @base64d) }]
+        | sort_by([(.active | not), -.signal])'
+}
+
+regen_state() {
+  local wifi=false tmp="$NET_STATE.tmp.$$"
+  [ "$(nmcli radio wifi 2>/dev/null)" = "enabled" ] && wifi=true
+  printf '{"wifi":%s,"conn":%s,"nets":%s}' \
+    "$wifi" "$(conn_json)" "$(nets_json 2>/dev/null || echo '[]')" > "$tmp" \
+    && mv -f "$tmp" "$NET_STATE" || rm -f "$tmp"
+}
+
+# ---- render self-contained temp QML (values via ENVIRON — see omasteam-apps)
+render() {
+  QML_STATE="$BAR_STATE" QML_NETSTATE="$NET_STATE" awk '
+    function subst(line, ph, v,    out, p) {
+      out = ""
+      p = index(line, ph)
+      while (p > 0) {
+        out = out substr(line, 1, p - 1) v
+        line = substr(line, p + length(ph))
+        p = index(line, ph)
+      }
+      return out line
+    }
+    { line = $0
+      line = subst(line, "@@STATE@@",    ENVIRON["QML_STATE"])
+      line = subst(line, "@@NETSTATE@@", ENVIRON["QML_NETSTATE"])
+      print line
+    }' "$QML" > "$RENDERED"
+}
+
+# ---- SQLite outbox (table `net_outbox`) ------------------------------------
+drain_outbox() { # $1 = 1 to emit, 0 to purge silently
+  command -v sqlite3 >/dev/null || return
+  local db c emit="$1"
+  while IFS= read -r db; do
+    [ -f "$db" ] || continue
+    sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='net_outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
+    if [ "$emit" = 1 ]; then
+      while IFS= read -r c; do [ -n "$c" ] && printf '%s\n' "$c"; done \
+        < <(sqlite3 "$db" "SELECT cmd FROM net_outbox ORDER BY id;" 2>/dev/null)
+    fi
+    sqlite3 "$db" "DELETE FROM net_outbox;" 2>/dev/null
+  done < <(find "$HOME/.local/share/QtProject" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+}
+
+run_net_cmd() {
+  # Slow nmcli verbs run in the background so the drain loop stays live; each
+  # one regenerates the state file when it lands so the panel catches up.
+  local cmd="$1" ssid pw dev
+  case "$cmd" in
+    wifi-on)  ( nmcli radio wifi on  >/dev/null 2>&1; sleep 2; regen_state ) & ;;
+    wifi-off) ( nmcli radio wifi off >/dev/null 2>&1; regen_state ) & ;;
+    rescan)   ( nmcli device wifi rescan >/dev/null 2>&1; sleep 2; regen_state ) & ;;
+    connect:*)
+      ssid="$(printf '%s' "${cmd#connect:}" | base64 -d 2>/dev/null)" || return
+      [ -n "$ssid" ] || return
+      ( if nmcli -t -f TYPE,NAME connection show 2>/dev/null \
+             | awk -F: '$1=="802-11-wireless"' | cut -d: -f2- | unescape \
+             | grep -qxF "$ssid"; then
+          nmcli connection up id "$ssid" >/dev/null 2>&1
+        else
+          nmcli device wifi connect "$ssid" >/dev/null 2>&1
+        fi
+        regen_state ) & ;;
+    connect-pw:*)
+      local rest="${cmd#connect-pw:}"
+      ssid="$(printf '%s' "${rest%%:*}" | base64 -d 2>/dev/null)" || return
+      pw="$(printf '%s' "${rest#*:}" | base64 -d 2>/dev/null)" || return
+      [ -n "$ssid" ] || return
+      ( nmcli device wifi connect "$ssid" password "$pw" >/dev/null 2>&1
+        regen_state ) & ;;
+    disconnect)
+      dev="$(nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null \
+        | awk -F: '$2=="wifi" && $3=="connected"{print $1; exit}')"
+      [ -n "$dev" ] && ( nmcli device disconnect "$dev" >/dev/null 2>&1; regen_state ) & ;;
+    "") : ;;
+    *)  echo "omasteam-network: unknown action '$cmd'" >&2 ;;
+  esac
+}
+
+# ---- run --------------------------------------------------------------------
+regen_state                      # snapshot before first paint
+render
+( nmcli device wifi rescan >/dev/null 2>&1; sleep 2; regen_state ) &  # fresh scan
+
+drain_outbox 0                   # purge anything stale first
+QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}" \
+QT_WAYLAND_SHELL_INTEGRATION=layer-shell \
+QML_XHR_ALLOW_FILE_READ=1 \
+  "$QMLSCENE" "$RENDERED" >/dev/null 2>&1 &
+QPID=$!
+echo "$QPID" > "$PIDFILE"
+
+# Live dispatch while the panel is up + periodic refresh (~6 s).
+tick=0
+while kill -0 "$QPID" 2>/dev/null; do
+  while IFS= read -r c; do run_net_cmd "$c"; done < <(drain_outbox 1)
+  tick=$((tick + 1))
+  [ $((tick % 24)) -eq 0 ] && regen_state
+  sleep 0.25
+done
+rm -f "$PIDFILE"
+while IFS= read -r c; do run_net_cmd "$c"; done < <(drain_outbox 1)

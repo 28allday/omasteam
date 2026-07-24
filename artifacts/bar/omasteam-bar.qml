@@ -187,6 +187,7 @@ Window {
                 readonly property var net: win.st.net || ({ type: "none", name: "" })
                 glyph: net.type === "wifi" ? win.icoWifi : (net.type === "ethernet" ? win.icoEth : win.icoNoNet)
                 label: net.type === "wifi" ? net.name : ""
+                onClicked: win.sendCmd("net-panel")
             }
 
             // volume

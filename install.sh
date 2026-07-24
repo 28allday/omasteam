@@ -572,6 +572,10 @@ EOF
   install -m644 "$ART/bar/omasteam-volume.qml" "$share/omasteam-volume.qml"
   install -m755 "$SCRIPT_DIR/bin/omasteam-volume" "$HOME/.local/bin/omasteam-volume"
 
+  # ---- network panel (Omarchy-quattro-style, from the bar's network chip) ----
+  install -m644 "$ART/bar/omasteam-network.qml" "$share/omasteam-network.qml"
+  install -m755 "$SCRIPT_DIR/bin/omasteam-network" "$HOME/.local/bin/omasteam-network"
+
   # ---- app launcher (Omarchy-style, Meta+Space) ----
   # Separate from the system menu: omasteam-apps is JUST the .desktop app picker.
   install -m644 "$ART/bar/omasteam-apps.qml" "$share/omasteam-apps.qml"

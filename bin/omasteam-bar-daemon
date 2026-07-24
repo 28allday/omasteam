@@ -151,6 +151,11 @@ run_cmd() {
               # panel). Fall back to the Plasma mixer applet if not installed.
               if command -v omasteam-volume >/dev/null; then omasteam-volume 2>/dev/null &
               else plasmawindowed org.kde.plasma.volume >/dev/null 2>&1 & fi ;;
+    net-panel)
+              # Tap on the network chip: toggle the omasteam network panel.
+              # Fall back to the Plasma NM applet if not installed.
+              if command -v omasteam-network >/dev/null; then omasteam-network 2>/dev/null &
+              else plasmawindowed org.kde.plasma.networkmanagement >/dev/null 2>&1 & fi ;;
     desktop-*)
               # The bar sends a 1-based position; KWin switches by id, so map it.
               # Guard the index: a non-number breaks the arithmetic, and 0 would
