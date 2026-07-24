@@ -24,7 +24,9 @@ terminal environment (eza/bat/fzf/zoxide/neovim+LazyVim/starship), and a one-com
 
 ![omasteam themed desktop](screenshots/02-omasteam-desktop.png)
 
-**Krohnkite auto-tiling** — windows tile automatically; here btop, kitty and Firefox share the screen:
+**Krohnkite auto-tiling** — windows tile automatically (settings surfaces opened
+from the system menu — kcm panels, the Wi-Fi applet, System Settings — float
+centered instead of tiling); here btop, kitty and Firefox share the screen:
 
 ![omasteam auto-tiling: btop, kitty, Firefox](screenshots/03-tiling-btop-kitty-firefox.png)
 

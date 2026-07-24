@@ -211,6 +211,14 @@ install_krohnkite() {
   # Retire Polonium if an older omasteam install enabled it (the script stays
   # on disk for manual rollback; only the plugin flag is flipped).
   kwriteconfig6 --file kwinrc --group Plugins --key poloniumEnabled false
+  # Settings surfaces opened from the omasteam menu float instead of tiling.
+  # One "kcmshell6" entry covers every kcm module: each gets a distinct
+  # resourceClass (kcm_<module>) but they all share resourceName kcmshell6,
+  # and Krohnkite matches floatingClass against both.
+  kwriteconfig6 --file kwinrc --group Script-krohnkite --key floatingClass \
+    "kcmshell6,plasmawindowed,org.kde.plasmawindowed,systemsettings"
+  # Floating windows open centered (matches the menu/launcher cards).
+  kwriteconfig6 --file kwinrc --group Windows --key Placement Centered
   qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || true
   ok "Krohnkite installed + enabled"
 }
