@@ -145,6 +145,12 @@ run_cmd() {
     vol-up)   wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+ ;;
     vol-down) wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- ;;
     vol-mute) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
+    vol-panel)
+              # Tap on the volume chip: toggle the omasteam volume panel (it
+              # single-instances itself — a second launch closes the open
+              # panel). Fall back to the Plasma mixer applet if not installed.
+              if command -v omasteam-volume >/dev/null; then omasteam-volume 2>/dev/null &
+              else plasmawindowed org.kde.plasma.volume >/dev/null 2>&1 & fi ;;
     desktop-*)
               # The bar sends a 1-based position; KWin switches by id, so map it.
               # Guard the index: a non-number breaks the arithmetic, and 0 would

@@ -196,7 +196,8 @@ Window {
                 glyph: muted ? win.icoMute : (vol < 34 ? win.icoVolLow : win.icoVol)
                 label: vol < 0 ? "" : (vol + "%")
                 glyphColor: muted ? win.alpha(win.cFg, 0.5) : win.cFg
-                onClicked: win.sendCmd("vol-mute")
+                onClicked: win.sendCmd("vol-panel")
+                onLongPressed: win.sendCmd("vol-mute")
                 onWheelUp: win.sendCmd("vol-up")
                 onWheelDown: win.sendCmd("vol-down")
             }
@@ -228,6 +229,7 @@ Window {
         property color glyphColor: win.cFg
         property color hoverGlyphColor: glyphColor
         signal clicked()
+        signal longPressed()
         signal wheelUp()
         signal wheelDown()
 
@@ -259,7 +261,7 @@ Window {
         }
 
         HoverHandler { id: hh; cursorShape: Qt.PointingHandCursor }
-        TapHandler { onTapped: chip.clicked() }
+        TapHandler { onTapped: chip.clicked(); onLongPressed: chip.longPressed() }
         WheelHandler {
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             onWheel: function(e) { if (e.angleDelta.y > 0) chip.wheelUp(); else if (e.angleDelta.y < 0) chip.wheelDown() }

@@ -1,0 +1,144 @@
+#!/bin/bash
+# omasteam-volume — Omarchy-quattro-style audio panel for SteamOS + KDE.
+#
+# Opened from the bar's volume chip. Same pure-userland approach as the
+# bar/menu/apps — stock Qt6 + org.kde.layershell via qmlscene, no Quickshell.
+#
+# This script is BOTH the launcher and the backend: plain QML can't spawn
+# processes, so slider moves and taps are pushed to a SQLite outbox (table
+# `vol_outbox`, distinct from the bar/menu/apps tables). UNLIKE the apps
+# launcher (which dispatches once after the overlay closes), this script polls
+# the outbox WHILE the panel is up so volume changes are heard live.
+#
+# Launching again while the panel is up closes it (bar-chip toggle).
+set -uo pipefail
+
+export PATH="$HOME/.local/bin:$PATH"
+
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+QML=""
+for cand in \
+  "$HERE/../artifacts/bar/omasteam-volume.qml" \
+  "$HOME/.local/share/omasteam/bar/omasteam-volume.qml"; do
+  [ -f "$cand" ] && { QML="$cand"; break; }
+done
+[ -n "$QML" ] || { echo "omasteam-volume: cannot find omasteam-volume.qml" >&2; exit 1; }
+
+QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
+[ -n "$QMLSCENE" ] || { echo "omasteam-volume: qmlscene not found" >&2; exit 1; }
+
+BAR_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar/state.json"
+VOL_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-volume"
+mkdir -p "$VOL_DIR"
+RENDERED="$VOL_DIR/omasteam-volume.rendered.qml"
+
+# ---- single-instance toggle ------------------------------------------------
+# PID file, NOT pgrep -f: a pattern match can hit any unrelated process whose
+# command line merely mentions the rendered filename (an editor, a debug
+# shell — it has happened) and kill it. The pid is verified against its
+# /proc cmdline so a recycled pid can't be killed by mistake.
+PIDFILE="$VOL_DIR/panel.pid"
+oldpid="$(cat "$PIDFILE" 2>/dev/null || true)"
+if [ -n "$oldpid" ] && grep -aq "omasteam-volume.rendered.qml" "/proc/$oldpid/cmdline" 2>/dev/null; then
+  kill "$oldpid" 2>/dev/null
+  rm -f "$PIDFILE"
+  exit 0
+fi
+rm -f "$PIDFILE"
+
+# ---- audio snapshot (JSON rendered into the QML) ----------------------------
+wp_vol() { # $1 = @DEFAULT_AUDIO_SINK@ / @DEFAULT_AUDIO_SOURCE@ -> "<pct> <muted>"
+  local out vol muted=false
+  out=$(wpctl get-volume "$1" 2>/dev/null) || { echo "0 false"; return; }
+  vol=$(printf '%s' "$out" | grep -oE '[0-9]+\.[0-9]+' | head -1)
+  case "$out" in *MUTED*) muted=true ;; esac
+  echo "$(awk -v v="${vol:-0}" 'BEGIN{printf "%d", v*100+0.5}') $muted"
+}
+
+read -r OUT_VOL OUT_MUTED < <(wp_vol @DEFAULT_AUDIO_SINK@)
+read -r MIC_VOL MIC_MUTED < <(wp_vol @DEFAULT_AUDIO_SOURCE@)
+DEF_SINK="$(pactl get-default-sink 2>/dev/null || true)"
+SINKS_JSON="$(pactl --format=json list sinks 2>/dev/null \
+  | jq -c --arg def "$DEF_SINK" \
+      '[.[] | {name, label: .description, def: (.name == $def)}]' 2>/dev/null)"
+[ -n "$SINKS_JSON" ] || SINKS_JSON="[]"
+VOLJSON="$(printf '{"out":{"vol":%s,"muted":%s},"mic":{"vol":%s,"muted":%s},"sinks":%s}' \
+  "$OUT_VOL" "$OUT_MUTED" "$MIC_VOL" "$MIC_MUTED" "$SINKS_JSON")"
+
+# Card height tracks the sink count (surface size must be static at creation):
+# margins 24 + rows 124 + column spacings 32 + devices (40*n - 4).
+NSINKS="$(jq length <<<"$SINKS_JSON" 2>/dev/null || echo 0)"
+if [ "$NSINKS" -gt 0 ] 2>/dev/null; then H=$((176 + 40 * NSINKS)); else H=180; fi
+
+# ---- render self-contained temp QML (qmlscene can't take argv/env) ----------
+# Values travel via the environment, NOT `awk -v` (escape processing) — see
+# omasteam-apps for the full note.
+render() {
+  QML_STATE="$BAR_STATE" QML_VOL="$VOLJSON" QML_H="$H" awk '
+    function subst(line, ph, v,    out, p) {
+      out = ""
+      p = index(line, ph)
+      while (p > 0) {
+        out = out substr(line, 1, p - 1) v
+        line = substr(line, p + length(ph))
+        p = index(line, ph)
+      }
+      return out line
+    }
+    { line = $0
+      line = subst(line, "@@STATE@@", ENVIRON["QML_STATE"])
+      line = subst(line, "@@VOL@@",   ENVIRON["QML_VOL"])
+      line = subst(line, "@@H@@",     ENVIRON["QML_H"])
+      print line
+    }' "$QML" > "$RENDERED"
+}
+render
+
+# ---- SQLite outbox (table `vol_outbox`) ------------------------------------
+drain_outbox() { # $1 = 1 to emit, 0 to purge silently
+  command -v sqlite3 >/dev/null || return
+  local db c emit="$1"
+  while IFS= read -r db; do
+    [ -f "$db" ] || continue
+    sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='vol_outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
+    if [ "$emit" = 1 ]; then
+      while IFS= read -r c; do [ -n "$c" ] && printf '%s\n' "$c"; done \
+        < <(sqlite3 "$db" "SELECT cmd FROM vol_outbox ORDER BY id;" 2>/dev/null)
+    fi
+    sqlite3 "$db" "DELETE FROM vol_outbox;" 2>/dev/null
+  done < <(find "$HOME/.local/share/QtProject" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+}
+
+run_vol_cmd() {
+  local cmd="$1" v
+  case "$cmd" in
+    sink-vol:*) v="${cmd#sink-vol:}"
+                case "$v" in ''|*[!0-9]*) : ;; *) wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ "${v}%" 2>/dev/null ;; esac ;;
+    mic-vol:*)  v="${cmd#mic-vol:}"
+                case "$v" in ''|*[!0-9]*) : ;; *) wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SOURCE@ "${v}%" 2>/dev/null ;; esac ;;
+    sink-mute)  wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle 2>/dev/null ;;
+    mic-mute)   wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle 2>/dev/null ;;
+    default-sink:*) pactl set-default-sink "${cmd#default-sink:}" 2>/dev/null ;;
+    "") : ;;
+    *)  echo "omasteam-volume: unknown action '$cmd'" >&2 ;;
+  esac
+}
+
+# ---- run --------------------------------------------------------------------
+# Qt env is scoped to the qmlscene invocation, NOT exported (see omasteam-menu:
+# a leaked QT_WAYLAND_SHELL_INTEGRATION turns launched apps into layer shells).
+drain_outbox 0                            # purge anything stale first
+QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}" \
+QT_WAYLAND_SHELL_INTEGRATION=layer-shell \
+QML_XHR_ALLOW_FILE_READ=1 \
+  "$QMLSCENE" "$RENDERED" >/dev/null 2>&1 &
+QPID=$!
+echo "$QPID" > "$PIDFILE"
+
+# Live dispatch while the panel is up, then one final drain after it closes.
+while kill -0 "$QPID" 2>/dev/null; do
+  while IFS= read -r c; do run_vol_cmd "$c"; done < <(drain_outbox 1)
+  sleep 0.25
+done
+rm -f "$PIDFILE"
+while IFS= read -r c; do run_vol_cmd "$c"; done < <(drain_outbox 1)

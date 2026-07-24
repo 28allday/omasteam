@@ -228,7 +228,7 @@ install_krohnkite() {
   # Merge our rule ids into the existing rule index instead of clobbering it.
   local rules
   rules="$(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null || true)"
-  for id in omasteam-kcm omasteam-syset; do
+  for id in omasteam-kcm omasteam-syset omasteam-applet; do
     case ",$rules," in *",$id,"*) ;; *) rules="${rules:+$rules,}$id" ;; esac
   done
   kwr General rules "$rules"
@@ -241,6 +241,10 @@ install_krohnkite() {
   kwr omasteam-syset size "1400,900"; kwr omasteam-syset sizerule 3
   kwr omasteam-syset wmclass systemsettings; kwr omasteam-syset wmclassmatch 1
   kwr omasteam-syset wmclasscomplete false; kwr omasteam-syset types 1
+  kwr omasteam-applet Description "omasteam: plasmawindowed applets (volume/wifi) open panel-sized"
+  kwr omasteam-applet size "480,640"; kwr omasteam-applet sizerule 3
+  kwr omasteam-applet wmclass plasmawindowed; kwr omasteam-applet wmclassmatch 1
+  kwr omasteam-applet wmclasscomplete false; kwr omasteam-applet types 1
   qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || true
   # A running Krohnkite only reads its config at script load, and a plain
   # reconfigure (or plugin-flag toggle) does NOT force a re-read — unload the
@@ -563,6 +567,10 @@ EOF
       array:int32:402653216 >/dev/null 2>&1 || true
   fi
   ok "system menu installed; Meta+Alt+Space bound (live + persisted)"
+
+  # ---- volume panel (Omarchy-quattro-style, from the bar's volume chip) ----
+  install -m644 "$ART/bar/omasteam-volume.qml" "$share/omasteam-volume.qml"
+  install -m755 "$SCRIPT_DIR/bin/omasteam-volume" "$HOME/.local/bin/omasteam-volume"
 
   # ---- app launcher (Omarchy-style, Meta+Space) ----
   # Separate from the system menu: omasteam-apps is JUST the .desktop app picker.
