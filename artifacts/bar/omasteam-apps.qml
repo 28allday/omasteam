@@ -82,10 +82,17 @@ Window {
     }
     onViewChanged: selectedIndex = 0
 
+    // Hide first, quit a beat later. Destroying the layer surface in the same
+    // event cycle as the input that triggered it has crashed KWin (segfault in
+    // Window::bufferGeometryChanged during Transaction::apply) — unmap now,
+    // drop the connection once the compositor has settled.
+    function dismiss() { win.visible = false; quitTimer.start() }
+    Timer { id: quitTimer; interval: 150; onTriggered: Qt.quit() }
+
     function activate(node) {
         if (!node) return
         if (node.action) sendCmd(node.action)
-        Qt.quit()
+        dismiss()
     }
     function enter() {
         if (view.length === 0) return
@@ -178,7 +185,7 @@ Window {
                                 case Qt.Key_Up:     win.moveSel(-1); e.accepted = true; break
                                 case Qt.Key_Return:
                                 case Qt.Key_Enter:  win.enter();     e.accepted = true; break
-                                case Qt.Key_Escape: Qt.quit();       e.accepted = true; break
+                                case Qt.Key_Escape: win.dismiss();   e.accepted = true; break
                                 case Qt.Key_Tab:    win.moveSel(1);  e.accepted = true; break
                                 }
                             }

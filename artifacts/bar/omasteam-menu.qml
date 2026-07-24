@@ -260,11 +260,18 @@ Window {
         stack = stack.concat([{ title: node.label, items: node.children }])
         clearQuery()
     }
+    // Hide first, quit a beat later. Destroying the layer surface in the same
+    // event cycle as the input that triggered it has crashed KWin (segfault in
+    // Window::bufferGeometryChanged during Transaction::apply) — unmap now,
+    // drop the connection once the compositor has settled.
+    function dismiss() { win.visible = false; quitTimer.start() }
+    Timer { id: quitTimer; interval: 150; onTriggered: Qt.quit() }
+
     function activate(node) {
         if (!node) return
         if (node.children) { openBranch(node); return }
         if (node.action) sendCmd(node.action)
-        Qt.quit()
+        dismiss()
     }
     function enter() {
         if (view.length === 0) return
@@ -273,7 +280,7 @@ Window {
     function back() {
         if (filter.length > 0) { clearQuery(); return }
         if (stack.length > 1) { stack = stack.slice(0, stack.length - 1); return }
-        Qt.quit()
+        dismiss()
     }
     function moveSel(delta) {
         if (view.length === 0) return
