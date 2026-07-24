@@ -25,7 +25,14 @@ Window {
     width: 460
     height: @@H@@
 
-    LayerShell.Window.anchors: LayerShell.Window.AnchorNone
+    // Anchored to the top-right so the card pops up under the bar's volume
+    // chip (quattro anchors its popup to the bar button; closest layer-shell
+    // equivalent). Top|Right only — one edge per axis keeps the fixed size,
+    // and the compositor already offsets past the bar's exclusive zone, so
+    // margins.top is just the visual gap under the bar.
+    LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorRight
+    LayerShell.Window.margins.top: 8
+    LayerShell.Window.margins.right: 12
     LayerShell.Window.layer: LayerShell.Window.LayerOverlay
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityExclusive
 
