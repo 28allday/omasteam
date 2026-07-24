@@ -153,13 +153,17 @@ run_menu_cmd() {
 }
 
 # ---- run --------------------------------------------------------------------
-export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
-export QT_WAYLAND_SHELL_INTEGRATION=layer-shell
-# QML XMLHttpRequest refuses local file:// reads (state.json palette) without this.
-export QML_XHR_ALLOW_FILE_READ=1
-
+# The Qt env vars are scoped to the qmlscene invocation, NOT exported: the
+# dispatcher's launch() inherits our environment, and a leaked
+# QT_WAYLAND_SHELL_INTEGRATION=layer-shell turns every Qt app we launch
+# (kcmshell6, systemsettings, plasmawindowed ...) into a layer-shell surface
+# stretched over the whole output — "everything opens full screen".
+# QML_XHR_ALLOW_FILE_READ: QML XMLHttpRequest refuses file:// reads without it.
 drain_outbox 0                     # purge any stale choice first
-"$QMLSCENE" "$RENDERED" >/dev/null 2>&1   # blocks until the overlay closes
+QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}" \
+QT_WAYLAND_SHELL_INTEGRATION=layer-shell \
+QML_XHR_ALLOW_FILE_READ=1 \
+  "$QMLSCENE" "$RENDERED" >/dev/null 2>&1   # blocks until the overlay closes
 
 # Dispatch whatever was chosen (usually one id; nothing if dismissed).
 while IFS= read -r choice; do

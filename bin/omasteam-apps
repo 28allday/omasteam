@@ -155,12 +155,14 @@ run_apps_cmd() {
 }
 
 # ---- run --------------------------------------------------------------------
-export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
-export QT_WAYLAND_SHELL_INTEGRATION=layer-shell
-export QML_XHR_ALLOW_FILE_READ=1
-
+# Scoped to the qmlscene invocation, NOT exported — a leaked
+# QT_WAYLAND_SHELL_INTEGRATION=layer-shell would turn every Qt app we launch
+# into a full-output layer-shell surface (see omasteam-menu).
 drain_outbox 0                            # purge any stale choice first
-"$QMLSCENE" "$RENDERED" >/dev/null 2>&1    # blocks until the overlay closes
+QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}" \
+QT_WAYLAND_SHELL_INTEGRATION=layer-shell \
+QML_XHR_ALLOW_FILE_READ=1 \
+  "$QMLSCENE" "$RENDERED" >/dev/null 2>&1    # blocks until the overlay closes
 
 while IFS= read -r choice; do
   [ -z "$choice" ] && continue
