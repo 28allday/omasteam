@@ -107,8 +107,8 @@ run by SteamOS's stock **Qt6** as a **wlr-layer-shell** surface. No Quickshell
 (Omarchy's compositor-specific shell framework), no compiling, no `sudo`.
 
 ```
- ☰  1 2 3 4 5 6 7 8 9      Wed 21:16    steam |   4% 󰂯 󰤨 󰕾 40% 󰁹 ⏻
- menu + workspaces            clock       Return-to-Gaming + status
+ ☰  1 2 3 4 5 6 7 8 9        Wed 21:16      steam |  4% 󰂯 󰤨 󰕾 40% 󰁹 ⏻
+ menu + workspaces              clock            Return-to-Gaming + status
 ```
 
 - **Left:** the system menu (`Meta+Alt+Space`) + KWin virtual desktops
@@ -116,11 +116,6 @@ run by SteamOS's stock **Qt6** as a **wlr-layer-shell** surface. No Quickshell
 - **Center:** live clock
 - **Right:** **Return to Gaming Mode**, then one chip per subsystem — each
   opens its own panel:
-  - **display** → resolution / scale / rotation / brightness, with the
-    apply-on-approval revert timer
-  - **night light** → schedule + colour temperature. The glyph is dim when
-    night light is off, plain when it is on but not currently warming the
-    screen, and accent + `4500K` while it actually is
   - **CPU load** → system monitor: CPU / GPU / RAM / swap / disk meters
     (with temperatures) + the three hungriest processes, live
   - **bluetooth** → power toggle, device list with tap-to-connect/pair
@@ -137,8 +132,8 @@ run by SteamOS's stock **Qt6** as a **wlr-layer-shell** surface. No Quickshell
 
 It **removes the stock Plasma panel** (backed up first to
 `~/.config/omasteam-panel-backup.appletsrc`) so the bar owns the desktop,
-Omarchy-style — the bar itself carries Return-to-Gaming, display, night light,
-system monitor, bluetooth, network, volume, battery and power. The `Return to Gaming Mode` desktop icon is untouched.
+Omarchy-style — the bar itself carries Return-to-Gaming, network, volume,
+battery and power. The `Return to Gaming Mode` desktop icon is untouched.
 
 How it works: a small bash daemon (`omasteam-bar-daemon`) polls the system +
 theme and writes `~/.local/state/omasteam-bar/state.json`; the bar reads it on a

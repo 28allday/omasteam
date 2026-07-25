@@ -61,8 +61,6 @@ Window {
     }
 
     readonly property string icoGaming: ""   // Steam glyph — Return to Gaming Mode
-    readonly property string icoScreen: String.fromCodePoint(0xF108)  // fa-desktop — display panel
-    readonly property string icoNight:  String.fromCodePoint(0xF186)  // fa-moon — night light
 
     // ---- state polling ---------------------------------------------------
     // Same no-op guard as the menu: only reassign win.st when state.json
@@ -180,25 +178,6 @@ Window {
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 1; height: 14; color: win.alpha(win.cFg, 0.15)
-            }
-
-            // display (resolution / scale / rotation / brightness)
-            Chip {
-                glyph: win.icoScreen
-                onClicked: win.sendCmd("display-panel")
-            }
-
-            // night light. `on` = switched on at all, `active` = tinting the
-            // screen right now (a scheduled night light is on but not active at
-            // noon), so the glyph reads dim / normal / accent and the colour
-            // temperature only shows while it is actually doing something.
-            Chip {
-                readonly property var night: win.st.night || ({ on: false, active: false, temp: 0 })
-                glyph: win.icoNight
-                label: (night.active && night.temp > 0) ? (night.temp + "K") : ""
-                glyphColor: night.active ? win.cAccent
-                          : (night.on ? win.cFg : win.alpha(win.cFg, 0.45))
-                onClicked: win.sendCmd("night-panel")
             }
 
             // system monitor (cpu load)

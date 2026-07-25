@@ -145,30 +145,6 @@ bluetooth_json() {
   printf '"bt":{"on":%s,"name":"%s"}' "$on" "$name"
 }
 
-nightlight_json() {
-  # {"on":bool,"active":bool,"temp":K} — `on` = night light is switched on at
-  # all, `active` = it is WARMING the screen right now.
-  # ⚠️ Do NOT use KWin's `running` for that: it means "night light is enabled
-  # and operating", and is true at midday with the screen at full daylight
-  # temperature — a chip driven by it reads "6500K" while nothing is tinted.
-  # The honest test is the temperature itself, against the configured day
-  # temperature (kwinrc DayTemperature, 6500K when unset).
-  # KWin exposes all of this READ-ONLY on D-Bus; writes go to kwinrc, which is
-  # the night light panel's job, not the daemon's.
-  local on=false active=false temp=0 dayt props
-  props=$(qdbus6 --literal "$KWIN" /org/kde/KWin/NightLight \
-            org.freedesktop.DBus.Properties.GetAll org.kde.KWin.NightLight 2>/dev/null)
-  if [ -n "$props" ]; then
-    [[ "$props" == *'"enabled" = [Variant(bool): true]'* ]] && on=true
-    temp=$(sed -n 's/.*"currentTemperature" = \[Variant(uint): \([0-9]*\)\].*/\1/p' <<<"$props")
-    [ -n "$temp" ] || temp=0
-    dayt=$(kreadconfig6 --file kwinrc --group NightColor --key DayTemperature 2>/dev/null)
-    case "${dayt:-}" in ''|*[!0-9]*) dayt=6500 ;; esac
-    [ "$on" = true ] && [ "$temp" -gt 0 ] && [ "$temp" -lt "$dayt" ] && active=true
-  fi
-  printf '"night":{"on":%s,"active":%s,"temp":%s}' "$on" "$active" "$temp"
-}
-
 # KWin's VirtualDesktopManager.desktops is a(uss) (position,id,name) which plain
 # qdbus6 can't print — only `--literal` does. The literal output lists desktops
 # in position order, so the UUIDs appear in order too. Emit one id per line.
@@ -208,7 +184,6 @@ write_state() {
     printf '%s,' "$(network_json)"
     printf '%s,' "$(bluetooth_json)"
     printf '%s,' "$(sys_json)"
-    printf '%s,' "$(nightlight_json)"
     printf '%s,' "$(battery_json)"
     printf '%s,' "$(desktops_json)"
     printf '"colors":{"bg":"#%s","fg":"#%s","accent":"#%s"}' "$bg" "$fg" "$ac"
@@ -244,16 +219,6 @@ run_cmd() {
               if command -v omasteam-monitor >/dev/null; then omasteam-monitor 2>/dev/null &
               elif command -v plasma-systemmonitor >/dev/null; then plasma-systemmonitor >/dev/null 2>&1 &
               fi ;;
-    display-panel)
-              # Tap on the display chip: toggle the omasteam display panel
-              # (resolution / scale / rotation / brightness), else KDE's module.
-              if command -v omasteam-display >/dev/null; then omasteam-display 2>/dev/null &
-              else kcmshell6 kcm_kscreen >/dev/null 2>&1 & fi ;;
-    night-panel)
-              # Tap on the night light chip: toggle the omasteam night light
-              # panel (schedule + temperature), else KDE's module.
-              if command -v omasteam-nightlight >/dev/null; then omasteam-nightlight 2>/dev/null &
-              else kcmshell6 kcm_nightlight >/dev/null 2>&1 & fi ;;
     desktop-*)
               # The bar sends a 1-based position; KWin switches by id, so map it.
               # Guard the index: a non-number breaks the arithmetic, and 0 would
