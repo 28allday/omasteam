@@ -583,6 +583,10 @@ EOF
   # ---- shared overlay closer (every surface calls it on open) ----
   install -m755 "$SCRIPT_DIR/bin/omasteam-surface-close" "$HOME/.local/bin/omasteam-surface-close"
 
+  # ---- night light panel (from the system menu; kwinrc + KWin D-Bus) ----
+  install -m644 "$ART/bar/omasteam-nightlight.qml" "$share/omasteam-nightlight.qml"
+  install -m755 "$SCRIPT_DIR/bin/omasteam-nightlight" "$HOME/.local/bin/omasteam-nightlight"
+
   # ---- display panel (from the system menu; kscreen-doctor backend) ----
   install -m644 "$ART/bar/omasteam-display.qml" "$share/omasteam-display.qml"
   install -m755 "$SCRIPT_DIR/bin/omasteam-display" "$HOME/.local/bin/omasteam-display"

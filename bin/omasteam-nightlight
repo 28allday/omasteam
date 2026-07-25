@@ -1,0 +1,184 @@
+#!/bin/bash
+# omasteam-nightlight — Omarchy-quattro-style night light panel for SteamOS+KDE.
+#
+# Opened from the system menu's "Display & Monitor > Night Light" leaf, in place
+# of kcmshell6 kcm_nightlight. Same pure-userland approach as the bar's panels.
+#
+# KWin exposes night light READ-ONLY over D-Bus (properties + preview; there is
+# no setter), so changes are written to kwinrc [NightColor] — and they MUST be
+# written with `kwriteconfig6 --notify`: KWin's NightLightManager listens on a
+# KConfigWatcher, so a plain write lands in the file and is silently ignored,
+# and even `qdbus6 /KWin reconfigure` does not pick it up.
+#
+# Launching again while the panel is up closes it.
+set -uo pipefail
+
+export PATH="$HOME/.local/bin:$PATH"
+
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+QML=""
+for cand in \
+  "$HERE/../artifacts/bar/omasteam-nightlight.qml" \
+  "$HOME/.local/share/omasteam/bar/omasteam-nightlight.qml"; do
+  [ -f "$cand" ] && { QML="$cand"; break; }
+done
+[ -n "$QML" ] || { echo "omasteam-nightlight: cannot find omasteam-nightlight.qml" >&2; exit 1; }
+
+QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
+[ -n "$QMLSCENE" ] || { echo "omasteam-nightlight: qmlscene not found" >&2; exit 1; }
+command -v jq >/dev/null || { echo "omasteam-nightlight: jq not found" >&2; exit 1; }
+
+BAR_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar/state.json"
+NL_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-nightlight"
+mkdir -p "$NL_DIR"
+RENDERED="$NL_DIR/omasteam-nightlight.rendered.qml"
+NL_STATE="$NL_DIR/nl-state.json"
+
+NL_PATH=/org/kde/KWin/NightLight
+NL_IFACE=org.kde.KWin.NightLight
+# kcfg enum order (see /usr/share/config.kcfg/nightlightsettings.kcfg):
+# 0 Automatic, 1 Location, 2 Times, 3 Constant.
+MODE_NAMES=(automatic location times constant)
+
+# ---- single-instance toggle (PID file — see omasteam-volume for why) --------
+PIDFILE="$NL_DIR/panel.pid"
+oldpid="$(cat "$PIDFILE" 2>/dev/null || true)"
+if [ -n "$oldpid" ] && grep -aq "omasteam-nightlight.rendered.qml" "/proc/$oldpid/cmdline" 2>/dev/null; then
+  kill "$oldpid" 2>/dev/null
+  rm -f "$PIDFILE"
+  exit 0
+fi
+rm -f "$PIDFILE"
+
+# ---- close any other omasteam overlay ---------------------------------------
+CLOSER="$HERE/omasteam-surface-close"
+[ -x "$CLOSER" ] || CLOSER="$(command -v omasteam-surface-close || true)"
+[ -n "$CLOSER" ] && "$CLOSER" nightlight
+
+nlprop() { qdbus6 org.kde.KWin "$NL_PATH" "$NL_IFACE.$1" 2>/dev/null; }
+kw() { kwriteconfig6 --notify --file kwinrc --group NightColor --key "$1" "$2" >/dev/null 2>&1; }
+num() { case "${1:-}" in ''|*[!0-9]*) echo "$2" ;; *) echo "$1" ;; esac; }
+
+# ---- state -> nl-state.json --------------------------------------------------
+regen_state() {
+  local tmp avail en mode cur target night day
+  tmp=$(mktemp "$NL_STATE.XXXXXX") || return
+  avail="$(nlprop available)";  [ "$avail" = true ] || avail=false
+  en="$(nlprop enabled)";       [ "$en" = true ] || en=false
+  mode="$(num "$(nlprop mode)" 0)"
+  [ "$mode" -ge 0 ] 2>/dev/null && [ "$mode" -le 3 ] 2>/dev/null || mode=0
+  cur="$(num "$(nlprop currentTemperature)" 6500)"
+  target="$(num "$(nlprop targetTemperature)" 6500)"
+  # The configured night/day temperatures come from the config, not D-Bus:
+  # `currentTemperature` is wherever the transition happens to be right now.
+  night="$(num "$(kreadconfig6 --file kwinrc --group NightColor --key NightTemperature 2>/dev/null)" 4500)"
+  day="$(num "$(kreadconfig6 --file kwinrc --group NightColor --key DayTemperature 2>/dev/null)" 6500)"
+  jq -n --argjson avail "$avail" --argjson enabled "$en" \
+        --arg mode "${MODE_NAMES[$mode]}" \
+        --argjson cur "$cur" --argjson target "$target" \
+        --argjson night "$night" --argjson day "$day" \
+    '{available: $avail, enabled: $enabled, mode: $mode,
+      current: $cur, target: $target, night: $night, day: $day}' \
+    > "$tmp" && mv -f "$tmp" "$NL_STATE" || rm -f "$tmp"
+}
+
+# ---- render self-contained temp QML (values via ENVIRON — see omasteam-apps)
+render() {
+  QML_STATE="$BAR_STATE" QML_NLSTATE="$NL_STATE" awk '
+    function subst(line, ph, v,    out, p) {
+      out = ""
+      p = index(line, ph)
+      while (p > 0) {
+        out = out substr(line, 1, p - 1) v
+        line = substr(line, p + length(ph))
+        p = index(line, ph)
+      }
+      return out line
+    }
+    { line = $0
+      line = subst(line, "@@STATE@@",   ENVIRON["QML_STATE"])
+      line = subst(line, "@@NLSTATE@@", ENVIRON["QML_NLSTATE"])
+      print line
+    }' "$QML" > "$RENDERED"
+}
+
+# ---- SQLite outbox (table `nl_outbox`) ---------------------------------------
+drain_outbox() { # $1 = 1 to emit, 0 to purge silently
+  command -v sqlite3 >/dev/null || return
+  local db c emit="$1"
+  while IFS= read -r db; do
+    [ -f "$db" ] || continue
+    sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='nl_outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
+    if [ "$emit" = 1 ]; then
+      while IFS= read -r c; do [ -n "$c" ] && printf '%s\n' "$c"; done \
+        < <(sqlite3 "$db" "SELECT cmd FROM nl_outbox ORDER BY id;" 2>/dev/null)
+    fi
+    sqlite3 "$db" "DELETE FROM nl_outbox;" 2>/dev/null
+  done < <(find "$HOME/.local/share/QtProject" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+}
+
+clamp_temp() { # KWin's supported range
+  local t="$1"
+  [ "$t" -lt 1000 ] && t=1000
+  [ "$t" -gt 6500 ] && t=6500
+  echo "$t"
+}
+
+run_nl_cmd() {
+  local cmd="$1" v
+  case "$cmd" in
+    on|off)
+      kw Active "$([ "$cmd" = on ] && echo true || echo false)"
+      sleep 0.5; regen_state ;;
+    toggle)
+      if [ "$(nlprop enabled)" = true ]; then kw Active false; else kw Active true; fi
+      sleep 0.5; regen_state ;;
+    mode:*)
+      case "${cmd#mode:}" in
+        constant)  kw Mode Constant ;;
+        automatic) kw Mode Automatic ;;
+        times)     kw Mode Times ;;
+        location)  kw Mode Location ;;
+        *) return ;;
+      esac
+      sleep 0.5; regen_state ;;
+    temp:*)
+      v="${cmd#temp:}"
+      case "$v" in ''|*[!0-9]*) return ;; esac
+      kw NightTemperature "$(clamp_temp "$v")"
+      sleep 0.5; regen_state ;;
+    preview:*)
+      # Live feedback while the slider moves; KWin animates toward the value and
+      # stopPreview puts it back wherever the real setting says.
+      v="${cmd#preview:}"
+      case "$v" in ''|*[!0-9]*) return ;; esac
+      qdbus6 org.kde.KWin "$NL_PATH" "$NL_IFACE.preview" "$(clamp_temp "$v")" >/dev/null 2>&1 & ;;
+    preview-stop)
+      qdbus6 org.kde.KWin "$NL_PATH" "$NL_IFACE.stopPreview" >/dev/null 2>&1 & ;;
+    "") : ;;
+    *)  echo "omasteam-nightlight: unknown action '$cmd'" >&2 ;;
+  esac
+}
+
+# ---- run --------------------------------------------------------------------
+regen_state
+render
+
+drain_outbox 0
+QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}" \
+QT_WAYLAND_SHELL_INTEGRATION=layer-shell \
+QML_XHR_ALLOW_FILE_READ=1 \
+  "$QMLSCENE" "$RENDERED" >/dev/null 2>&1 &
+QPID=$!
+echo "$QPID" > "$PIDFILE"
+
+tick=0
+while kill -0 "$QPID" 2>/dev/null; do
+  while IFS= read -r c; do run_nl_cmd "$c"; done < <(drain_outbox 1)
+  tick=$((tick + 1))
+  [ $((tick % 8)) -eq 0 ] && regen_state      # ~2s: the live temperature drifts
+  sleep 0.25
+done
+rm -f "$PIDFILE"
+# Never leave a preview tint behind if the panel dies mid-drag.
+qdbus6 org.kde.KWin "$NL_PATH" "$NL_IFACE.stopPreview" >/dev/null 2>&1

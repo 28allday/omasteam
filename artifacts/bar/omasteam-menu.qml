@@ -140,7 +140,8 @@ Window {
         { glyph: icoDisplay,  label: "Display & Monitor", children: [
             { glyph: g(0xF108), label: "Display Configuration", action: "display" },
             { glyph: g(0xF0DB), label: "Screen Arrangement (KDE)", action: "kcm:kcm_kscreen" },
-            { glyph: g(0xF186), label: "Night Light",           action: "kcm:kcm_nightlight" },
+            { glyph: g(0xF186), label: "Night Light",           action: "nightlight" },
+            { glyph: g(0xF017), label: "Night Light Schedule (KDE)", action: "kcm:kcm_nightlight" },
         ]},
         { glyph: icoAccess,   label: "Accessibility", action: "kcm:kcm_access" },
         { glyph: icoDevices,  label: "Connected Devices", children: [
