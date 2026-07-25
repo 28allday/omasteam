@@ -66,6 +66,38 @@ volume_json() {
   printf '"vol":%s,"muted":%s' "${vol:-0}" "$muted"
 }
 
+sys_json() {
+  # CPU load % since the previous tick + memory in use, for the monitor chip.
+  # The previous /proc/stat sample lives in a FILE, not a shell global: this is
+  # called through $(...) from write_state, and a command substitution runs in
+  # a subshell where any assignment we make dies with it.
+  local prev="$STATE_DIR/cpu.prev"
+  local _n user nice sys idle iowait irq softirq steal total idled pct=0
+  local ptotal=0 pidle=0 dt di
+  read -r _n user nice sys idle iowait irq softirq steal _ < /proc/stat
+  total=$((user + nice + sys + idle + iowait + irq + softirq + steal))
+  idled=$((idle + iowait))
+  read -r ptotal pidle < "$prev" 2>/dev/null || true
+  case "${ptotal:-}${pidle:-}" in *[!0-9]*|"") ptotal=0; pidle=0 ;; esac
+  dt=$((total - ptotal)); di=$((idled - pidle))
+  # dt <= 0 means first sample (or a counter that went backwards): report 0
+  # rather than dividing by zero.
+  [ "$ptotal" -gt 0 ] && [ "$dt" -gt 0 ] && pct=$(( (100 * (dt - di)) / dt ))
+  [ "$pct" -lt 0 ] && pct=0
+  [ "$pct" -gt 100 ] && pct=100
+  printf '%s %s\n' "$total" "$idled" > "$prev" 2>/dev/null
+
+  local memtotal=0 memavail=0 mempct=0
+  while read -r key val _; do
+    case "$key" in
+      MemTotal:)     memtotal=$val ;;
+      MemAvailable:) memavail=$val; break ;;
+    esac
+  done < /proc/meminfo
+  [ "$memtotal" -gt 0 ] && mempct=$(( (100 * (memtotal - memavail)) / memtotal ))
+  printf '"sys":{"cpu":%s,"mem":%s}' "$pct" "$mempct"
+}
+
 battery_json() {
   local b cap st
   for b in /sys/class/power_supply/BAT* /sys/class/power_supply/battery; do
@@ -151,6 +183,7 @@ write_state() {
     printf '%s,' "$(volume_json)"
     printf '%s,' "$(network_json)"
     printf '%s,' "$(bluetooth_json)"
+    printf '%s,' "$(sys_json)"
     printf '%s,' "$(battery_json)"
     printf '%s,' "$(desktops_json)"
     printf '"colors":{"bg":"#%s","fg":"#%s","accent":"#%s"}' "$bg" "$fg" "$ac"
@@ -180,6 +213,12 @@ run_cmd() {
               # Fall back to the Plasma bluetooth applet if not installed.
               if command -v omasteam-bluetooth >/dev/null; then omasteam-bluetooth 2>/dev/null &
               else plasmawindowed org.kde.plasma.bluetooth >/dev/null 2>&1 & fi ;;
+    mon-panel)
+              # Tap on the monitor chip: toggle the omasteam system monitor.
+              # Fall back to whatever task manager is around if not installed.
+              if command -v omasteam-monitor >/dev/null; then omasteam-monitor 2>/dev/null &
+              elif command -v plasma-systemmonitor >/dev/null; then plasma-systemmonitor >/dev/null 2>&1 &
+              fi ;;
     desktop-*)
               # The bar sends a 1-based position; KWin switches by id, so map it.
               # Guard the index: a non-number breaks the arithmetic, and 0 would

@@ -42,6 +42,7 @@ Window {
     readonly property string icoWifi:    ""
     readonly property string icoApps:  String.fromCodePoint(0xF00A)   // th (grid) — app launcher
     readonly property string icoEth:   String.fromCodePoint(0xF0200)  // md-ethernet
+    readonly property string icoCpu:   String.fromCodePoint(0xF2DB)   // fa-microchip — system monitor
     readonly property string icoBt:     String.fromCodePoint(0xF00AF)  // md-bluetooth
     readonly property string icoBtConn: String.fromCodePoint(0xF00B1)  // md-bluetooth-connect
     readonly property string icoBtOff:  String.fromCodePoint(0xF00B2)  // md-bluetooth-off
@@ -183,6 +184,15 @@ Window {
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 1; height: 14; color: win.alpha(win.cFg, 0.15)
+            }
+
+            // system monitor (cpu load)
+            Chip {
+                readonly property var sys: win.st.sys || ({ cpu: 0, mem: 0 })
+                glyph: win.icoCpu
+                label: sys.cpu + "%"
+                glyphColor: sys.cpu >= 85 ? "#f7768e" : win.cFg
+                onClicked: win.sendCmd("mon-panel")
             }
 
             // bluetooth

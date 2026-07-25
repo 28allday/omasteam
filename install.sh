@@ -580,6 +580,10 @@ EOF
   install -m644 "$ART/bar/omasteam-bluetooth.qml" "$share/omasteam-bluetooth.qml"
   install -m755 "$SCRIPT_DIR/bin/omasteam-bluetooth" "$HOME/.local/bin/omasteam-bluetooth"
 
+  # ---- system monitor panel (Omarchy-quattro-style, from the bar's cpu chip) ----
+  install -m644 "$ART/bar/omasteam-monitor.qml" "$share/omasteam-monitor.qml"
+  install -m755 "$SCRIPT_DIR/bin/omasteam-monitor" "$HOME/.local/bin/omasteam-monitor"
+
   # ---- power panel (Omarchy-quattro-style, from the bar's power chip) ----
   install -m644 "$ART/bar/omasteam-power.qml" "$share/omasteam-power.qml"
   install -m755 "$SCRIPT_DIR/bin/omasteam-power" "$HOME/.local/bin/omasteam-power"
