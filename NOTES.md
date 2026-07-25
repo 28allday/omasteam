@@ -40,10 +40,45 @@ Things install.sh does that are easy to forget it does:
 
 ### Git state at time of writing
 
-`master`, working tree clean, **51 commits ahead of origin, deliberately NOT
+`master`, working tree clean, **50+ commits ahead of origin, deliberately NOT
 pushed** — the user wants more system work done before this goes public. Push
 with `git push origin master` when they say so (no credentials in the agent
 environment; GitHub HTTPS needs a PAT, or set up SSH).
+
+### Backups on the drive
+
+Because none of that history is on GitHub, it exists **only on this drive**.
+Two extra copies sit next to the checkout:
+
+```
+projects/omasteam                     the working checkout
+projects/omasteam-backup.git          bare mirror, wired up as the `drive` remote
+projects/omasteam-<date>.bundle       single-file archive of the full history
+```
+
+Keep the mirror current after committing — one command, no network:
+
+```bash
+git push drive master
+```
+
+Refresh the single-file bundle when it matters (it's a snapshot, not a remote):
+
+```bash
+git bundle create "../omasteam-$(date +%F).bundle" --all
+```
+
+Restore from either one:
+
+```bash
+git clone /path/to/omasteam-backup.git omasteam        # from the mirror
+git clone /path/to/omasteam-<date>.bundle omasteam     # from the bundle
+```
+
+**⚠️ These protect against losing the working folder, not against losing the
+drive** — all three copies are on the same disk. The bundle is one self-contained
+file precisely so it can be dragged to a USB stick or cloud folder in one go;
+doing that (or finally pushing to `origin`) is the only real off-disk backup.
 
 ---
 
