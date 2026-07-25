@@ -580,6 +580,9 @@ EOF
   install -m644 "$ART/bar/omasteam-bluetooth.qml" "$share/omasteam-bluetooth.qml"
   install -m755 "$SCRIPT_DIR/bin/omasteam-bluetooth" "$HOME/.local/bin/omasteam-bluetooth"
 
+  # ---- shared overlay closer (every surface calls it on open) ----
+  install -m755 "$SCRIPT_DIR/bin/omasteam-surface-close" "$HOME/.local/bin/omasteam-surface-close"
+
   # ---- system monitor panel (Omarchy-quattro-style, from the bar's cpu chip) ----
   install -m644 "$ART/bar/omasteam-monitor.qml" "$share/omasteam-monitor.qml"
   install -m755 "$SCRIPT_DIR/bin/omasteam-monitor" "$HOME/.local/bin/omasteam-monitor"

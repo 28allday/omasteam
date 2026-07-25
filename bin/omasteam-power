@@ -44,6 +44,13 @@ if [ -n "$oldpid" ] && grep -aq "omasteam-power.rendered.qml" "/proc/$oldpid/cmd
 fi
 rm -f "$PIDFILE"
 
+# ---- close any other omasteam overlay ---------------------------------------
+# The panels all anchor to the same top-right corner, so a second one used to
+# bury the first: invisible, still grabbing the keyboard, still polling.
+CLOSER="$HERE/omasteam-surface-close"
+[ -x "$CLOSER" ] || CLOSER="$(command -v omasteam-surface-close || true)"
+[ -n "$CLOSER" ] && "$CLOSER" power
+
 # ---- system state -> power-state.json ---------------------------------------
 # Battery is NOT duplicated here: the panel reads it from the bar daemon's
 # state.json, which already tracks it.

@@ -146,6 +146,19 @@ omasteam-bar restart
 omasteam-bar status
 ```
 
+Only one omasteam surface is up at a time: opening any panel, the system menu or
+the app launcher closes whichever was already open (`omasteam-surface-close`).
+
+**Debugging a surface:** Qt sends QML warnings to the *journal*, not to the
+launcher's stderr — a broken binding leaves no trace in a terminal. Watch them
+with `journalctl --user -f | grep qmlscene`, or run a rendered surface by hand
+with `QT_FORCE_STDERR_LOGGING=1` to get them on the console:
+
+```bash
+QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 \
+  qmlscene6 ~/.local/state/omasteam-monitor/omasteam-monitor.rendered.qml
+```
+
 Needs a KDE Plasma 6 **Wayland** session (uses `org.kde.layershell` +
 `zwlr_layer_shell_v1`, both stock on SteamOS).
 

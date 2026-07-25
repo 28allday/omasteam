@@ -82,6 +82,14 @@ Window {
                 try {
                     var n = JSON.parse(xhr.responseText)
                     if (n && n.nets) {
+                        // Fill in anything the file is missing before it reaches
+                        // a binding. A net-state.json left behind by an older
+                        // omasteam has no `conn`, and `net.conn.type` on
+                        // undefined throws a TypeError that kills the hero's
+                        // bindings for good — with the error going only to the
+                        // journal, so the card just looks broken.
+                        if (!n.conn) n.conn = { type: "none", label: "", detail: "", signal: 0 }
+                        if (n.wifi === undefined) n.wifi = false
                         win.net = n
                         // A network turning active means the pending connect landed.
                         if (win.connecting !== "") {

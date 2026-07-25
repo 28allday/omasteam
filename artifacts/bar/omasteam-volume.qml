@@ -61,12 +61,27 @@ Window {
                 if (xhr.responseText === win._lastRaw) return
                 win._lastRaw = xhr.responseText
                 try { win.st = JSON.parse(xhr.responseText) } catch (e) {}
+                win.syncFromBar()
             }
         }
         xhr.open("GET", "file://" + statePath)
         xhr.send()
     }
     Component.onCompleted: poll()
+
+    // The bar's volume chip stays reachable while this card is open (the card
+    // hangs below the bar, it doesn't cover it), so a scroll or a mute up there
+    // would leave this panel showing a stale number. Adopt the daemon's value —
+    // but never while the handle is down, and not for a beat after our own
+    // command, or our optimistic value would flicker back to the pre-change one
+    // for the ~1s until the daemon catches up.
+    property double _lastSendMs: 0
+    function syncFromBar() {
+        if (outRow.dragging || Date.now() - _lastSendMs < 1500) return
+        if (st.vol !== undefined) outVol = st.vol
+        if (st.muted !== undefined) outMuted = st.muted === true
+    }
+    Timer { interval: 1000; repeat: true; running: true; onTriggered: win.poll() }
 
     // ---- audio snapshot (rendered in by the launcher) ------------------------
     // An un-rendered placeholder yields the empty fallback.
@@ -97,9 +112,9 @@ Window {
         } catch (e) { console.log("sendCmd failed:", e) }
     }
 
-    function setOut(v)  { outVol = clampPct(v); sendCmd("sink-vol:" + outVol) }
+    function setOut(v)  { _lastSendMs = Date.now(); outVol = clampPct(v); sendCmd("sink-vol:" + outVol) }
     function setMic(v)  { micVol = clampPct(v); sendCmd("mic-vol:" + micVol) }
-    function muteOut()  { outMuted = !outMuted; sendCmd("sink-mute") }
+    function muteOut()  { _lastSendMs = Date.now(); outMuted = !outMuted; sendCmd("sink-mute") }
     function muteMic()  { micMuted = !micMuted; sendCmd("mic-mute") }
     function setDefault(name) { defSink = name; sendCmd("default-sink:" + name) }
 
@@ -151,6 +166,7 @@ Window {
             }
 
             SliderRow {
+                id: outRow
                 width: parent.width
                 value: win.outVol
                 muted: win.outMuted

@@ -232,6 +232,9 @@ Window {
                 glyph: bat.charging ? win.icoBolt : win.batIcon(bat.pct)
                 label: bat.pct + "%"
                 glyphColor: (!bat.charging && bat.pct <= 15) ? "#f7768e" : win.cFg
+                // Every other chip opens something; send this one to the power
+                // panel, which is where battery state belongs anyway.
+                onClicked: win.sendCmd("power")
             }
 
             // power
@@ -249,6 +252,7 @@ Window {
         id: chip
         property string glyph: ""
         property string label: ""
+        property int maxLabelWidth: 140
         property color glyphColor: win.cFg
         property color hoverGlyphColor: glyphColor
         signal clicked()
@@ -278,6 +282,12 @@ Window {
                 anchors.verticalCenter: parent.verticalCenter
                 text: chip.label
                 visible: chip.label !== ""
+                // Labels are user/AP-controlled (SSIDs, Bluetooth device names)
+                // and can be long enough to push this whole cluster across the
+                // clock — on a Deck's 1280px panel, into the workspaces too.
+                // Clamp and ellipsize instead of growing the bar.
+                width: Math.min(implicitWidth, chip.maxLabelWidth)
+                elide: Text.ElideRight
                 color: win.cFg
                 font { family: win.fontFamily; pixelSize: 12 }
             }

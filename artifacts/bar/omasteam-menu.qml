@@ -244,8 +244,10 @@ Window {
         var f = filter.toLowerCase()
         if (!f) return items
         var out = []
+        // (items[i].label || "") — a theme directory that produced no label
+        // would otherwise throw mid-filter and blank the level.
         for (var i = 0; i < items.length; i++)
-            if (items[i].label.toLowerCase().indexOf(f) !== -1) out.push(items[i])
+            if ((items[i].label || "").toLowerCase().indexOf(f) !== -1) out.push(items[i])
         return out
     }
     onViewChanged: selectedIndex = 0
@@ -429,6 +431,9 @@ Window {
                         }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
+                            // Leave room for the submenu chevron on the right.
+                            width: parent.width - 20 - parent.spacing - 26
+                            elide: Text.ElideRight
                             text: modelData.label || ""
                             color: sel ? win.cBg : win.cFg
                             font { family: win.fontFamily; pixelSize: 14; bold: sel }

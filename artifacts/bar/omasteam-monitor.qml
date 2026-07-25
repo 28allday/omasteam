@@ -25,7 +25,11 @@ Window {
     LayerShell.Window.margins.top: 8
     LayerShell.Window.margins.right: 12
     LayerShell.Window.layer: LayerShell.Window.LayerOverlay
-    LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityExclusive
+    // OnDemand, not Exclusive: this is the one panel meant to be watched WHILE
+    // working, and an exclusive grab would swallow every keystroke aimed at the
+    // window behind it. Tap the card to give it focus (then Esc closes); the
+    // bar chip toggles it either way.
+    LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityOnDemand
 
     // ---- theme palette (read from the bar daemon's state.json, like the bar) --
     property var st: ({})
@@ -90,7 +94,22 @@ Window {
                 win._lastMon = xhr.responseText
                 try {
                     var m = JSON.parse(xhr.responseText)
-                    if (m && m.cpu) win.mon = m
+                    // Merge over the defaults rather than replacing wholesale:
+                    // a mon-state.json missing a section (an older omasteam's
+                    // file, a jq that only got halfway) would otherwise throw a
+                    // TypeError per meter and leave the card visibly dead, with
+                    // the errors going only to the journal.
+                    if (m && m.cpu) {
+                        win.mon = {
+                            cpu:  m.cpu  || { pct: 0, temp: null, model: "", threads: 0, load: "" },
+                            gpu:  m.gpu  || { pct: null, temp: null },
+                            mem:  m.mem  || { used: 0, total: 0 },
+                            swap: m.swap || { used: 0, total: 0 },
+                            disk: m.disk || { used: 0, total: 0, mount: "" },
+                            uptime: m.uptime || "",
+                            procs: m.procs || []
+                        }
+                    }
                 } catch (e) {}
             }
         }

@@ -75,6 +75,12 @@ Window {
                 try {
                     var b = JSON.parse(xhr.responseText)
                     if (b && b.devs) {
+                        // Same defensive fill as the network panel: a state file
+                        // missing a key must not reach a binding as undefined.
+                        if (b.powered === undefined) b.powered = false
+                        for (var j = 0; j < b.devs.length; j++) {
+                            if (!b.devs[j].label) b.devs[j].label = b.devs[j].mac || "(unnamed)"
+                        }
                         win.bt = b
                         if (win.connecting !== "") {
                             for (var i = 0; i < b.devs.length; i++)

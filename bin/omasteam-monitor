@@ -43,6 +43,13 @@ fi
 rm -f "$PIDFILE"
 rm -f "$CPU_PREV"                 # a stale sample would show one bogus first tick
 
+# ---- close any other omasteam overlay ---------------------------------------
+# The panels all anchor to the same top-right corner, so a second one used to
+# bury the first: invisible, still grabbing the keyboard, still polling.
+CLOSER="$HERE/omasteam-surface-close"
+[ -x "$CLOSER" ] || CLOSER="$(command -v omasteam-surface-close || true)"
+[ -n "$CLOSER" ] && "$CLOSER" monitor
+
 # ---- probe the fixed hardware facts once -------------------------------------
 CPU_MODEL="$(grep -m1 '^model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- \
   | sed -e 's/^ *//' -e 's/([Rr])//g' -e 's/(TM)//gI' -e 's/^AMD //' -e 's/^Intel //' \

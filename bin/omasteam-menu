@@ -39,14 +39,28 @@ THEMES_DIR="$HOME/.config/omasteam/themes"
 MODE=run
 [ "${1:-}" = "--print" ] && MODE=print
 
-# ---- single-instance toggle ------------------------------------------------
-# The running overlay is `qmlscene .../omasteam-menu.rendered.qml`. Our own
-# command line is `.../omasteam-menu` (no "rendered.qml"), so pkill won't hit us.
-RENDERED_PAT="omasteam-menu.rendered.qml"
-if [ "$MODE" = run ] && pgrep -f "$RENDERED_PAT" >/dev/null 2>&1; then
-  pkill -f "$RENDERED_PAT" 2>/dev/null
-  exit 0
+# ---- single-instance toggle (PID file, like the panels) ---------------------
+# NOT pgrep/pkill -f: that matches ANY process whose command line happens to
+# contain the pattern — an editor with the rendered file open, a grep, a test
+# shell — so an unrelated process could both block this launcher and get killed
+# by it. The PID is verified against /proc instead, which cannot mismatch.
+PIDFILE="$MENU_DIR/panel.pid"
+if [ "$MODE" = run ]; then
+  oldpid="$(cat "$PIDFILE" 2>/dev/null || true)"
+  if [ -n "${oldpid:-}" ] && grep -aq "omasteam-menu.rendered.qml" "/proc/$oldpid/cmdline" 2>/dev/null; then
+    kill "$oldpid" 2>/dev/null
+    rm -f "$PIDFILE"
+    exit 0
+  fi
+  rm -f "$PIDFILE"
 fi
+
+# ---- close any other omasteam overlay ---------------------------------------
+# Two overlays at once means two keyboard grabs and a card the user can't see
+# (see omasteam-surface-close).
+CLOSER="$HERE/omasteam-surface-close"
+[ -x "$CLOSER" ] || CLOSER="$(command -v omasteam-surface-close || true)"
+[ -n "$CLOSER" ] && [ "$MODE" = run ] && "$CLOSER" menu
 
 # ---- dynamic Style > Themes level ------------------------------------------
 themes_json() {
@@ -163,7 +177,13 @@ drain_outbox 0                     # purge any stale choice first
 QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}" \
 QT_WAYLAND_SHELL_INTEGRATION=layer-shell \
 QML_XHR_ALLOW_FILE_READ=1 \
-  "$QMLSCENE" "$RENDERED" >/dev/null 2>&1   # blocks until the overlay closes
+  "$QMLSCENE" "$RENDERED" >/dev/null 2>&1 &
+# Backgrounded only so the PID can be recorded for the single-instance toggle
+# and for omasteam-surface-close; `wait` restores the blocking behaviour.
+QPID=$!
+[ "$MODE" = run ] && echo "$QPID" > "$PIDFILE"
+wait "$QPID"
+rm -f "$PIDFILE"
 
 # Dispatch whatever was chosen (usually one id; nothing if dismissed).
 while IFS= read -r choice; do

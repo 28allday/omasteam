@@ -76,8 +76,10 @@ Window {
         var f = filter.toLowerCase()
         if (!f) return apps
         var out = []
+        // (apps[i].label || "") — a .desktop with no Name would otherwise throw
+        // mid-filter and blank the whole list on the keystroke that hit it.
         for (var i = 0; i < apps.length; i++)
-            if (apps[i].label.toLowerCase().indexOf(f) !== -1) out.push(apps[i])
+            if ((apps[i].label || "").toLowerCase().indexOf(f) !== -1) out.push(apps[i])
         return out
     }
     onViewChanged: selectedIndex = 0
@@ -230,6 +232,10 @@ Window {
                         }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
+                            // Bounded + elided: a long .desktop Name used to run
+                            // under the card's edge and get hard-cut by the clip.
+                            width: parent.width - 20 - parent.spacing
+                            elide: Text.ElideRight
                             text: modelData.label || ""
                             color: sel ? win.cBg : win.cFg
                             font { family: win.fontFamily; pixelSize: 14; bold: sel }

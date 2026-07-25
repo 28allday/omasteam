@@ -46,6 +46,13 @@ if [ -n "$oldpid" ] && grep -aq "omasteam-volume.rendered.qml" "/proc/$oldpid/cm
 fi
 rm -f "$PIDFILE"
 
+# ---- close any other omasteam overlay ---------------------------------------
+# The panels all anchor to the same top-right corner, so a second one used to
+# bury the first: invisible, still grabbing the keyboard, still polling.
+CLOSER="$HERE/omasteam-surface-close"
+[ -x "$CLOSER" ] || CLOSER="$(command -v omasteam-surface-close || true)"
+[ -n "$CLOSER" ] && "$CLOSER" volume
+
 # ---- audio snapshot (JSON rendered into the QML) ----------------------------
 wp_vol() { # $1 = @DEFAULT_AUDIO_SINK@ / @DEFAULT_AUDIO_SOURCE@ -> "<pct> <muted>"
   local out vol muted=false

@@ -1,0 +1,34 @@
+#!/bin/bash
+# omasteam-surface-close — close every omasteam overlay except one.
+#
+# The bar's panels all anchor to the same top-right corner, and the menu/apps
+# launchers are centered overlays. Opening a second one used to leave the first
+# ALIVE underneath it: invisible, still holding a keyboard grab, and still
+# running its launcher's poll loop (the monitor panel keeps spawning `top`).
+# The only way out was tapping a chip the user had no way to know was active.
+#
+# So every surface calls this on open with its own name. Usage:
+#   omasteam-surface-close <keep>     e.g. `omasteam-surface-close monitor`
+# Pass no argument to close all of them.
+set -uo pipefail
+
+KEEP="${1:-}"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}"
+
+# Every surface — the five panels plus the menu and apps overlays — records a
+# PID file. The PID is verified against /proc before killing, so a stale file
+# can never take out an unrelated process that inherited the number, and no
+# pkill -f pattern is involved (that has misfired on this project five times).
+for pf in "$STATE"/omasteam-*/panel.pid; do
+  [ -f "$pf" ] || continue
+  surface="$(basename "$(dirname "$pf")")"      # e.g. omasteam-monitor
+  [ "$surface" = "omasteam-$KEEP" ] && continue
+  pid="$(cat "$pf" 2>/dev/null)"
+  case "${pid:-}" in ''|*[!0-9]*) rm -f "$pf"; continue ;; esac
+  if grep -aq "$surface.rendered.qml" "/proc/$pid/cmdline" 2>/dev/null; then
+    kill "$pid" 2>/dev/null
+  fi
+  rm -f "$pf"
+done
+
+exit 0
