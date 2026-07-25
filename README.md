@@ -179,11 +179,14 @@ settings surface that mirrors KDE's **System Settings** sidebar:
 
 - **Walker-style:** type to filter, `↑`/`↓` to move, `Enter` to open/run,
   `Esc`/`←` to go back, click-outside to dismiss. `Meta+Alt+Space` again toggles it.
-- Each settings leaf opens the matching **`kcmshell6`** module (e.g. Display →
-  `kcm_kscreen`, Bluetooth → `kcm_bluetooth`); *Open Full System Settings* opens
-  the whole app. **Style** = next wallpaper + omasteam theme switcher · **Capture**
-  = screenshot region/window/full + record (Spectacle) · **Power** = Lock /
-  Suspend / Log Out / Restart / Shut Down / Return to Gaming.
+- Leaves that omasteam has its **own** QML panel for open that panel instead of
+  KDE's module — Wi-Fi, Bluetooth and Sound go to the bar's network / bluetooth /
+  volume cards, and the **Power** leaves run the same session verbs as the power
+  panel (`omasteam-power --run <verb>`), so there is one implementation of "how
+  does this desktop log out" rather than two. Everything else opens the matching
+  **`kcmshell6`** module; *Open Full System Settings* opens the whole app.
+  **Style** = next wallpaper + omasteam theme switcher · **Capture** = screenshot
+  region/window/full + record (Spectacle).
 - **Theme-synced** from the same `state.json` the bar uses. Same split: the QML
   overlay pushes the chosen action to a SQLite outbox that the `omasteam-menu`
   launcher drains and runs (a separate `menu_outbox` table, so the bar daemon

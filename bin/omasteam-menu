@@ -144,22 +144,43 @@ run_menu_cmd() {
     wallpaper-next) omasteam-theme wallpaper next 2>/dev/null ;;
     theme-set:*)    name="${cmd#theme-set:}"
                     [ -n "$name" ] && omasteam-theme set "$name" 2>/dev/null ;;   # bar re-themes on its next tick
-    # Wi-Fi uses the NetworkManager applet (nicer picker than the kcm editor).
-    wifi)           launch plasmawindowed org.kde.plasma.networkmanagement ;;
-    lock)           loginctl lock-session 2>/dev/null \
-                      || qdbus6 org.kde.screensaver /ScreenSaver Lock 2>/dev/null ;;
-    suspend)        systemctl suspend ;;
-    logout)         qdbus6 org.kde.LogoutPrompt /LogoutPrompt promptLogout 2>/dev/null \
-                      || qdbus6 org.kde.ksmserver /KSMServer logout 1 0 3 2>/dev/null ;;
-    restart)        qdbus6 org.kde.LogoutPrompt /LogoutPrompt promptReboot 2>/dev/null \
-                      || systemctl reboot ;;
-    shutdown)       qdbus6 org.kde.LogoutPrompt /LogoutPrompt promptShutDown 2>/dev/null \
-                      || systemctl poweroff ;;
-    return-to-gaming)
-                    if [ "$(steamosctl get-default-login-mode 2>/dev/null)" = desktop ]; then
-                      steamosctl switch-to-game-mode 2>/dev/null &
+    # ---- omasteam's own QML surfaces ----------------------------------------
+    # These leaves used to open Plasma applets / kcm modules for things the bar
+    # now has real panels for. Same place in the tree, our own surface.
+    network)        if command -v omasteam-network >/dev/null; then launch omasteam-network
+                    else launch plasmawindowed org.kde.plasma.networkmanagement; fi ;;
+    bluetooth)      if command -v omasteam-bluetooth >/dev/null; then launch omasteam-bluetooth
+                    else launch kcmshell6 kcm_bluetooth; fi ;;
+    volume)         if command -v omasteam-volume >/dev/null; then launch omasteam-volume
+                    else launch plasmawindowed org.kde.plasma.volume; fi ;;
+    power-panel)    if command -v omasteam-power >/dev/null; then launch omasteam-power
+                    else launch kcmshell6 kcm_powerdevilprofilesconfig; fi ;;
+    # ---- session verbs -------------------------------------------------------
+    # Dispatched through `omasteam-power --run` so the menu and the power panel
+    # share ONE implementation. Inline fallbacks only for an install where the
+    # power launcher is missing; note the old code popped KDE's LogoutPrompt —
+    # the very dialog the panel replaced.
+    lock|suspend|logout|restart|shutdown|return-to-gaming)
+                    local verb="$cmd"
+                    case "$cmd" in
+                      restart)          verb=reboot ;;
+                      return-to-gaming) verb=gaming ;;
+                    esac
+                    if command -v omasteam-power >/dev/null; then
+                      omasteam-power --run "$verb" 2>/dev/null
                     else
-                      qdbus6 org.kde.Shutdown /Shutdown org.kde.Shutdown.logout 2>/dev/null &
+                      case "$verb" in
+                        lock)     loginctl lock-session 2>/dev/null ;;
+                        suspend)  systemctl suspend ;;
+                        logout)   qdbus6 org.kde.Shutdown /Shutdown org.kde.Shutdown.logout 2>/dev/null ;;
+                        reboot)   systemctl reboot ;;
+                        shutdown) systemctl poweroff ;;
+                        gaming)   if [ "$(steamosctl get-default-login-mode 2>/dev/null)" = desktop ]; then
+                                    steamosctl switch-to-game-mode 2>/dev/null &
+                                  else
+                                    qdbus6 org.kde.Shutdown /Shutdown org.kde.Shutdown.logout 2>/dev/null &
+                                  fi ;;
+                      esac
                     fi ;;
     "" ) : ;;   # dismissed / no-op leaf
     *  ) echo "omasteam-menu: unknown action '$cmd'" >&2 ;;

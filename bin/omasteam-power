@@ -17,16 +17,27 @@ set -uo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+# `omasteam-power --run <verb>` runs one session verb and exits, with no panel.
+# The system menu's Power leaves dispatch through this so there is exactly ONE
+# implementation of "how does this desktop log out" — the menu used to pop KDE's
+# LogoutPrompt, the very dialog the panel replaced.
+RUN_VERB=""
+if [ "${1:-}" = "--run" ]; then
+  RUN_VERB="${2:-}"
+  [ -n "$RUN_VERB" ] || { echo "omasteam-power: --run needs a verb" >&2; exit 2; }
+fi
+
 QML=""
 for cand in \
   "$HERE/../artifacts/bar/omasteam-power.qml" \
   "$HOME/.local/share/omasteam/bar/omasteam-power.qml"; do
   [ -f "$cand" ] && { QML="$cand"; break; }
 done
-[ -n "$QML" ] || { echo "omasteam-power: cannot find omasteam-power.qml" >&2; exit 1; }
+[ -n "$QML" ] || [ -n "$RUN_VERB" ] || { echo "omasteam-power: cannot find omasteam-power.qml" >&2; exit 1; }
 
 QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
-[ -n "$QMLSCENE" ] || { echo "omasteam-power: qmlscene not found" >&2; exit 1; }
+[ -n "$QMLSCENE" ] || [ -n "$RUN_VERB" ] || { echo "omasteam-power: qmlscene not found" >&2; exit 1; }
 
 BAR_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar/state.json"
 PW_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-power"
@@ -35,21 +46,24 @@ RENDERED="$PW_DIR/omasteam-power.rendered.qml"
 PW_STATE="$PW_DIR/power-state.json"
 
 # ---- single-instance toggle (PID file — see omasteam-volume for why) --------
+# Skipped for --run: dispatching a verb must not close a panel the user has open.
 PIDFILE="$PW_DIR/panel.pid"
-oldpid="$(cat "$PIDFILE" 2>/dev/null || true)"
-if [ -n "$oldpid" ] && grep -aq "omasteam-power.rendered.qml" "/proc/$oldpid/cmdline" 2>/dev/null; then
-  kill "$oldpid" 2>/dev/null
+if [ -z "$RUN_VERB" ]; then
+  oldpid="$(cat "$PIDFILE" 2>/dev/null || true)"
+  if [ -n "$oldpid" ] && grep -aq "omasteam-power.rendered.qml" "/proc/$oldpid/cmdline" 2>/dev/null; then
+    kill "$oldpid" 2>/dev/null
+    rm -f "$PIDFILE"
+    exit 0
+  fi
   rm -f "$PIDFILE"
-  exit 0
 fi
-rm -f "$PIDFILE"
 
 # ---- close any other omasteam overlay ---------------------------------------
 # The panels all anchor to the same top-right corner, so a second one used to
 # bury the first: invisible, still grabbing the keyboard, still polling.
 CLOSER="$HERE/omasteam-surface-close"
 [ -x "$CLOSER" ] || CLOSER="$(command -v omasteam-surface-close || true)"
-[ -n "$CLOSER" ] && "$CLOSER" power
+[ -n "$CLOSER" ] && [ -z "$RUN_VERB" ] && "$CLOSER" power
 
 # ---- system state -> power-state.json ---------------------------------------
 # Battery is NOT duplicated here: the panel reads it from the bar daemon's
@@ -140,6 +154,12 @@ run_power_cmd() {
     *)  echo "omasteam-power: unknown action '$1'" >&2 ;;
   esac
 }
+
+# `--run <verb>`: dispatch and stop, no panel (the system menu's Power leaves).
+if [ -n "$RUN_VERB" ]; then
+  run_power_cmd "$RUN_VERB"
+  exit 0
+fi
 
 # ---- run --------------------------------------------------------------------
 regen_state                      # snapshot before first paint

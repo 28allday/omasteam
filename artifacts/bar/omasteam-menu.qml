@@ -143,14 +143,14 @@ Window {
         ]},
         { glyph: icoAccess,   label: "Accessibility", action: "kcm:kcm_access" },
         { glyph: icoDevices,  label: "Connected Devices", children: [
-            { glyph: g(0xF294), label: "Bluetooth",       action: "kcm:kcm_bluetooth" },
+            { glyph: g(0xF294), label: "Bluetooth",       action: "bluetooth" },
             { glyph: g(0xF0A0), label: "Disks & Cameras", action: "kcm:kcm_device_automounter" },
             { glyph: g(0xF0E7), label: "Thunderbolt",     action: "kcm:kcm_bolt" },
             { glyph: g(0xF10B), label: "KDE Connect",     action: "kcm:kcm_kdeconnect" },
             { glyph: g(0xF02F), label: "Printers",        action: "kcm:kcm_printer_manager" },
         ]},
         { glyph: icoNet,      label: "Networking", children: [
-            { glyph: g(0xF1EB), label: "Wi-Fi & Internet",    action: "wifi" },
+            { glyph: g(0xF1EB), label: "Wi-Fi & Internet",    action: "network" },
             { glyph: g(0xF0E8), label: "Network Connections", action: "kcm:kcm_networkmanagement" },
             { glyph: g(0xF2BD), label: "Online Accounts",     action: "kcm:kcm_kaccounts" },
             { glyph: g(0xF108), label: "Remote Desktop",      action: "kcm:kcm_krdpserver" },
@@ -174,7 +174,10 @@ Window {
             { glyph: g(0xF065), label: "Screen Edges",         action: "kcm:kcm_kwinscreenedges" },
             { glyph: g(0xF074), label: "Activities",           action: "kcm:kcm_activities" },
         ]},
-        { glyph: icoSound,    label: "Sound",            action: "kcm:kcm_pulseaudio" },
+        { glyph: icoSound,    label: "Sound", children: [
+            { glyph: g(0xF028), label: "Volume & Devices",   action: "volume" },
+            { glyph: g(0xF1DE), label: "Advanced Sound (KDE)", action: "kcm:kcm_pulseaudio" },
+        ]},
         { glyph: icoPowerMgt, label: "Power Management", action: "kcm:kcm_powerdevilprofilesconfig" },
         { glyph: icoInput,    label: "Input Devices", children: [
             { glyph: g(0xF11C), label: "Keyboard",        action: "kcm:kcm_keyboard" },
@@ -220,6 +223,7 @@ Window {
             { glyph: g(0xF03D), label: "Record Screen",     action: "record" },
         ]},
         { glyph: icoSystem,  label: "Power", children: [
+            { glyph: g(0xF011), label: "Power Panel",      action: "power-panel" },
             { glyph: g(0xF023), label: "Lock",             action: "lock" },
             { glyph: g(0xF186), label: "Suspend",          action: "suspend" },
             { glyph: g(0xF08B), label: "Log Out",          action: "logout" },
