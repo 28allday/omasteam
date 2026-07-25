@@ -151,6 +151,8 @@ run_menu_cmd() {
                     else launch plasmawindowed org.kde.plasma.networkmanagement; fi ;;
     bluetooth)      if command -v omasteam-bluetooth >/dev/null; then launch omasteam-bluetooth
                     else launch kcmshell6 kcm_bluetooth; fi ;;
+    display)        if command -v omasteam-display >/dev/null; then launch omasteam-display
+                    else launch kcmshell6 kcm_kscreen; fi ;;
     volume)         if command -v omasteam-volume >/dev/null; then launch omasteam-volume
                     else launch plasmawindowed org.kde.plasma.volume; fi ;;
     power-panel)    if command -v omasteam-power >/dev/null; then launch omasteam-power

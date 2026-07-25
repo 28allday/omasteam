@@ -181,9 +181,12 @@ settings surface that mirrors KDE's **System Settings** sidebar:
   `Esc`/`←` to go back, click-outside to dismiss. `Meta+Alt+Space` again toggles it.
 - Leaves that omasteam has its **own** QML panel for open that panel instead of
   KDE's module — Wi-Fi, Bluetooth and Sound go to the bar's network / bluetooth /
-  volume cards, and the **Power** leaves run the same session verbs as the power
-  panel (`omasteam-power --run <verb>`), so there is one implementation of "how
-  does this desktop log out" rather than two. Everything else opens the matching
+  volume cards, **Display Configuration** opens omasteam's display panel
+  (resolution / scale / rotation / brightness, `kscreen-doctor` backend, with
+  KDE's *Screen Arrangement* kept alongside it for multi-monitor layout), and the
+  **Power** leaves run the same session verbs as the power panel
+  (`omasteam-power --run <verb>`), so there is one implementation of "how does
+  this desktop log out" rather than two. Everything else opens the matching
   **`kcmshell6`** module; *Open Full System Settings* opens the whole app.
   **Style** = next wallpaper + omasteam theme switcher · **Capture** = screenshot
   region/window/full + record (Spectacle).
@@ -222,7 +225,9 @@ bin/              omasteam-theme, theme (wrapper), omasteam-rebind-shortcuts,
                   omasteam-network (network-panel launcher + nmcli backend),
                   omasteam-bluetooth (bluetooth-panel launcher + bluetoothctl backend),
                   omasteam-power (power-panel launcher + session verbs),
-                  omasteam-monitor (system-monitor launcher + /proc sampler)
+                  omasteam-monitor (system-monitor launcher + /proc sampler),
+                  omasteam-display (display panel + kscreen-doctor backend),
+                  omasteam-surface-close (closes every overlay but one)
 artifacts/        static config files copied into place (kitty.conf, service menu, …)
 artifacts/bar/    omasteam-bar.qml (the QML bar) + omasteam-menu.qml (system menu)
                   + omasteam-apps.qml (app launcher) + omasteam-volume.qml (volume

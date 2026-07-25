@@ -1,0 +1,283 @@
+#!/bin/bash
+# omasteam-display — Omarchy-quattro-style display panel for SteamOS + KDE.
+#
+# Opened from the system menu's "Display & Monitor > Display Configuration"
+# leaf, in place of kcmshell6 kcm_kscreen. Same pure-userland approach as the
+# bar's panels — stock Qt6 + org.kde.layershell via qmlscene — with
+# kscreen-doctor as the backend (the same tool KDE's own kcm drives).
+#
+# Resolution / scale / rotation changes can leave a display unusable, so every
+# geometry change is APPLIED ON APPROVAL: the launcher snapshots the previous
+# setting, applies the new one, and reverts automatically unless the panel
+# confirms within REVERT_SECS. Same contract as KDE's own "keep changes?"
+# dialog, which is the one bit of kcm_kscreen we must not lose.
+#
+# Launching again while the panel is up closes it.
+set -uo pipefail
+
+export PATH="$HOME/.local/bin:$PATH"
+
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+QML=""
+for cand in \
+  "$HERE/../artifacts/bar/omasteam-display.qml" \
+  "$HOME/.local/share/omasteam/bar/omasteam-display.qml"; do
+  [ -f "$cand" ] && { QML="$cand"; break; }
+done
+[ -n "$QML" ] || { echo "omasteam-display: cannot find omasteam-display.qml" >&2; exit 1; }
+
+QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
+[ -n "$QMLSCENE" ] || { echo "omasteam-display: qmlscene not found" >&2; exit 1; }
+command -v kscreen-doctor >/dev/null || { echo "omasteam-display: kscreen-doctor not found" >&2; exit 1; }
+command -v jq >/dev/null || { echo "omasteam-display: jq not found" >&2; exit 1; }
+
+BAR_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar/state.json"
+DSP_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-display"
+mkdir -p "$DSP_DIR"
+RENDERED="$DSP_DIR/omasteam-display.rendered.qml"
+DSP_STATE="$DSP_DIR/disp-state.json"
+
+REVERT_SECS=12
+
+# ---- single-instance toggle (PID file — see omasteam-volume for why) --------
+PIDFILE="$DSP_DIR/panel.pid"
+oldpid="$(cat "$PIDFILE" 2>/dev/null || true)"
+if [ -n "$oldpid" ] && grep -aq "omasteam-display.rendered.qml" "/proc/$oldpid/cmdline" 2>/dev/null; then
+  kill "$oldpid" 2>/dev/null
+  rm -f "$PIDFILE"
+  exit 0
+fi
+rm -f "$PIDFILE"
+
+# ---- close any other omasteam overlay ---------------------------------------
+CLOSER="$HERE/omasteam-surface-close"
+[ -x "$CLOSER" ] || CLOSER="$(command -v omasteam-surface-close || true)"
+[ -n "$CLOSER" ] && "$CLOSER" display
+
+# ---- brightness (PowerDevil, so it works unprivileged) ----------------------
+# Gated on a real backlight: PowerDevil answers 10000/10000 on a desktop with
+# no panel at all, which would render a slider that controls nothing.
+BL_PRESENT=0
+[ -n "$(ls -A /sys/class/backlight 2>/dev/null)" ] && BL_PRESENT=1
+BC_PATH=/org/kde/Solid/PowerManagement/Actions/BrightnessControl
+BC_IFACE=org.kde.Solid.PowerManagement.Actions.BrightnessControl
+bright_pct() {
+  [ "$BL_PRESENT" = 1 ] || { echo 0; return; }
+  local cur max
+  cur="$(qdbus6 org.kde.Solid.PowerManagement "$BC_PATH" "$BC_IFACE.brightness" 2>/dev/null)"
+  max="$(qdbus6 org.kde.Solid.PowerManagement "$BC_PATH" "$BC_IFACE.brightnessMax" 2>/dev/null)"
+  case "${cur:-}${max:-}" in ''|*[!0-9]*) echo 0; return ;; esac
+  [ "${max:-0}" -gt 0 ] || { echo 0; return; }
+  echo $(( 100 * cur / max ))
+}
+set_bright() { # $1 = 0..100
+  [ "$BL_PRESENT" = 1 ] || return
+  local max
+  max="$(qdbus6 org.kde.Solid.PowerManagement "$BC_PATH" "$BC_IFACE.brightnessMax" 2>/dev/null)"
+  case "${max:-}" in ''|*[!0-9]*) return ;; esac
+  qdbus6 org.kde.Solid.PowerManagement "$BC_PATH" "$BC_IFACE.setBrightness" \
+    $(( $1 * max / 100 )) >/dev/null 2>&1
+}
+
+# ---- pending-approval bookkeeping -------------------------------------------
+REVERT_CMD=""       # kscreen-doctor args that undo the last change
+REVERT_LABEL=""     # what the panel says is being confirmed
+DEADLINE=0
+
+now() { date +%s; }
+
+# ---- state -> disp-state.json ------------------------------------------------
+# kscreen's rotation enum: 1 none, 2 left, 4 inverted, 8 right.
+regen_state() {
+  local tmp raw pend secs
+  tmp=$(mktemp "$DSP_STATE.XXXXXX") || return
+  raw="$(kscreen-doctor -j 2>/dev/null)"
+  [ -n "$raw" ] || { rm -f "$tmp"; return; }
+  if [ "$DEADLINE" -gt 0 ]; then
+    secs=$(( DEADLINE - $(now) )); [ "$secs" -lt 0 ] && secs=0
+    pend="$(jq -cn --argjson s "$secs" --arg l "$REVERT_LABEL" '{secs: $s, label: $l}')"
+  else
+    pend=null
+  fi
+  printf '%s' "$raw" | jq \
+      --argjson bl "$(bright_pct)" --argjson blp "$BL_PRESENT" \
+      --argjson pending "$pend" '
+    { outputs: ([ .outputs[] | select(.connected) ] | map(. as $o | {
+        name: $o.name,
+        kind: ($o.name
+                | if test("^eDP|^LVDS|^DSI") then "internal"
+                  elif test("^HDMI") then "HDMI"
+                  elif test("^DP|^DisplayPort") then "DisplayPort"
+                  else "display" end),
+        enabled: ($o.enabled == true),
+        primary: (($o.priority // 0) == 1),
+        scale: ($o.scale // 1),
+        rotation: ({"1":"none","2":"left","4":"inverted","8":"right"}[($o.rotation // 1) | tostring] // "none"),
+        modeId: ($o.currentModeId // ""),
+        current: ([ $o.modes[] | select(.id == $o.currentModeId)
+                    | "\(.size.width)x\(.size.height) @ \(.refreshRate | round)Hz" ][0] // ""),
+        modes: ([ $o.modes[] | { id: .id, w: .size.width, h: .size.height,
+                                 hz: (.refreshRate | round),
+                                 current: (.id == $o.currentModeId) } ]
+                | sort_by([-(.w * .h), -.hz]))
+      })),
+      backlight: { present: ($blp == 1), pct: $bl },
+      pending: $pending }' \
+    > "$tmp" && mv -f "$tmp" "$DSP_STATE" || rm -f "$tmp"
+}
+
+out_json() { # $1 = output name -> that output's object from the live state
+  jq -c --arg n "$1" '.outputs[] | select(.name == $n)' "$DSP_STATE" 2>/dev/null
+}
+
+# ---- apply-on-approval -------------------------------------------------------
+kd() { kscreen-doctor "$@" >/dev/null 2>&1; }
+
+arm_revert() { # $1 = undo args (space separated), $2 = label
+  REVERT_CMD="$1"
+  REVERT_LABEL="$2"
+  DEADLINE=$(( $(now) + REVERT_SECS ))
+}
+clear_revert() { REVERT_CMD=""; REVERT_LABEL=""; DEADLINE=0; }
+do_revert() {
+  # shellcheck disable=SC2086
+  [ -n "$REVERT_CMD" ] && kd $REVERT_CMD
+  clear_revert
+  regen_state
+}
+
+valid_name() { case "$1" in ''|*[!A-Za-z0-9._-]*) return 1 ;; *) return 0 ;; esac; }
+
+run_disp_cmd() {
+  local cmd="$1" name rest o
+  case "$cmd" in
+    mode:*)
+      rest="${cmd#mode:}"; name="${rest%%:*}"; rest="${rest#*:}"
+      valid_name "$name" || return
+      case "$rest" in ''|*[!0-9]*) return ;; esac
+      o="$(out_json "$name")" || return
+      [ -n "$o" ] || return
+      arm_revert "output.$name.mode.$(jq -r .modeId <<<"$o")" "resolution"
+      kd "output.$name.mode.$rest"
+      regen_state ;;
+    scale:*)
+      rest="${cmd#scale:}"; name="${rest%%:*}"; rest="${rest#*:}"
+      valid_name "$name" || return
+      case "$rest" in ''|*[!0-9.]*) return ;; esac
+      o="$(out_json "$name")"; [ -n "$o" ] || return
+      arm_revert "output.$name.scale.$(jq -r .scale <<<"$o")" "scale"
+      kd "output.$name.scale.$rest"
+      regen_state ;;
+    rot:*)
+      rest="${cmd#rot:}"; name="${rest%%:*}"; rest="${rest#*:}"
+      valid_name "$name" || return
+      case "$rest" in none|left|right|inverted) : ;; *) return ;; esac
+      o="$(out_json "$name")"; [ -n "$o" ] || return
+      arm_revert "output.$name.rotation.$(jq -r .rotation <<<"$o")" "rotation"
+      kd "output.$name.rotation.$rest"
+      regen_state ;;
+    enable:*)
+      rest="${cmd#enable:}"; name="${rest%%:*}"; rest="${rest#*:}"
+      valid_name "$name" || return
+      # Never black out the machine: refuse to disable the last enabled output.
+      if [ "$rest" = 0 ] && [ "$(jq '[.outputs[] | select(.enabled)] | length' "$DSP_STATE" 2>/dev/null)" -le 1 ]; then
+        return
+      fi
+      arm_revert "output.$name.$([ "$rest" = 1 ] && echo disable || echo enable)" "output"
+      kd "output.$name.$([ "$rest" = 1 ] && echo enable || echo disable)"
+      regen_state ;;
+    primary:*)
+      name="${cmd#primary:}"
+      valid_name "$name" || return
+      kd "output.$name.priority.1"      # harmless: no revert needed
+      regen_state ;;
+    bright:*)
+      rest="${cmd#bright:}"
+      case "$rest" in ''|*[!0-9]*) return ;; esac
+      [ "$rest" -gt 100 ] && rest=100
+      set_bright "$rest" ;;
+    keep)   clear_revert; regen_state ;;
+    revert) do_revert ;;
+    "") : ;;
+    *)  echo "omasteam-display: unknown action '$cmd'" >&2 ;;
+  esac
+}
+
+# ---- render self-contained temp QML (values via ENVIRON — see omasteam-apps)
+# Height must be static at creation (layer-shell), so it is computed here from
+# what this machine actually has: an output picker only with more than one
+# display, a brightness row only with a real backlight.
+panel_height() {
+  local n h=366
+  n="$(jq '.outputs | length' "$DSP_STATE" 2>/dev/null)"
+  case "${n:-1}" in ''|*[!0-9]*) n=1 ;; esac
+  [ "$n" -gt 1 ] && h=$(( h + 40 ))
+  [ "$BL_PRESENT" = 1 ] && h=$(( h + 66 ))
+  echo "$h"
+}
+
+render() {
+  QML_STATE="$BAR_STATE" QML_DSPSTATE="$DSP_STATE" QML_H="$(panel_height)" awk '
+    function subst(line, ph, v,    out, p) {
+      out = ""
+      p = index(line, ph)
+      while (p > 0) {
+        out = out substr(line, 1, p - 1) v
+        line = substr(line, p + length(ph))
+        p = index(line, ph)
+      }
+      return out line
+    }
+    { line = $0
+      line = subst(line, "@@STATE@@",     ENVIRON["QML_STATE"])
+      line = subst(line, "@@DSPSTATE@@",  ENVIRON["QML_DSPSTATE"])
+      line = subst(line, "@@H@@",         ENVIRON["QML_H"])
+      print line
+    }' "$QML" > "$RENDERED"
+}
+
+# ---- SQLite outbox (table `disp_outbox`) -------------------------------------
+drain_outbox() { # $1 = 1 to emit, 0 to purge silently
+  command -v sqlite3 >/dev/null || return
+  local db c emit="$1"
+  while IFS= read -r db; do
+    [ -f "$db" ] || continue
+    sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='disp_outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
+    if [ "$emit" = 1 ]; then
+      while IFS= read -r c; do [ -n "$c" ] && printf '%s\n' "$c"; done \
+        < <(sqlite3 "$db" "SELECT cmd FROM disp_outbox ORDER BY id;" 2>/dev/null)
+    fi
+    sqlite3 "$db" "DELETE FROM disp_outbox;" 2>/dev/null
+  done < <(find "$HOME/.local/share/QtProject" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+}
+
+# ---- run --------------------------------------------------------------------
+regen_state
+render
+
+drain_outbox 0
+QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}" \
+QT_WAYLAND_SHELL_INTEGRATION=layer-shell \
+QML_XHR_ALLOW_FILE_READ=1 \
+  "$QMLSCENE" "$RENDERED" >/dev/null 2>&1 &
+QPID=$!
+echo "$QPID" > "$PIDFILE"
+
+# The drain loop stays in the MAIN shell so REVERT_CMD/DEADLINE survive between
+# ticks (a `while ... | read` subshell would lose them every iteration).
+tick=0
+while kill -0 "$QPID" 2>/dev/null; do
+  while IFS= read -r c; do run_disp_cmd "$c"; done < <(drain_outbox 1)
+  if [ "$DEADLINE" -gt 0 ]; then
+    [ "$(now)" -ge "$DEADLINE" ] && do_revert
+    regen_state                       # 4x/s while counting down, for the timer
+  else
+    tick=$((tick + 1))
+    [ $((tick % 8)) -eq 0 ] && regen_state
+  fi
+  sleep 0.25
+done
+rm -f "$PIDFILE"
+# A change left unconfirmed when the panel closes is NOT kept — closing the card
+# is not approval.
+[ "$DEADLINE" -gt 0 ] && do_revert

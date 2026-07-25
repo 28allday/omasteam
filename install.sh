@@ -583,6 +583,10 @@ EOF
   # ---- shared overlay closer (every surface calls it on open) ----
   install -m755 "$SCRIPT_DIR/bin/omasteam-surface-close" "$HOME/.local/bin/omasteam-surface-close"
 
+  # ---- display panel (from the system menu; kscreen-doctor backend) ----
+  install -m644 "$ART/bar/omasteam-display.qml" "$share/omasteam-display.qml"
+  install -m755 "$SCRIPT_DIR/bin/omasteam-display" "$HOME/.local/bin/omasteam-display"
+
   # ---- system monitor panel (Omarchy-quattro-style, from the bar's cpu chip) ----
   install -m644 "$ART/bar/omasteam-monitor.qml" "$share/omasteam-monitor.qml"
   install -m755 "$SCRIPT_DIR/bin/omasteam-monitor" "$HOME/.local/bin/omasteam-monitor"
