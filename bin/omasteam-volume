@@ -79,7 +79,7 @@ if [ "$NSINKS" -gt 0 ] 2>/dev/null; then H=$((176 + 40 * NSINKS)); else H=180; f
 
 # ---- render self-contained temp QML (qmlscene can't take argv/env) ----------
 # Values travel via the environment, NOT `awk -v` (escape processing) — see
-# omasteam-apps for the full note.
+# omasteam-menu for the full note.
 render() {
   QML_STATE="$BAR_STATE" QML_VOL="$VOLJSON" QML_H="$H" awk '
     function subst(line, ph, v,    out, p) {

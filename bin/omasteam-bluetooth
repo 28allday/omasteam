@@ -97,7 +97,7 @@ regen_state() {
     > "$tmp" && mv -f "$tmp" "$BT_STATE" || rm -f "$tmp"
 }
 
-# ---- render self-contained temp QML (values via ENVIRON — see omasteam-apps)
+# ---- render self-contained temp QML (values via ENVIRON — see omasteam-menu)
 render() {
   QML_STATE="$BAR_STATE" QML_BTSTATE="$BT_STATE" awk '
     function subst(line, ph, v,    out, p) {

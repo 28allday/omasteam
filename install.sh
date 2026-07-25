@@ -414,7 +414,7 @@ EOF
   setsc "org.kde.dolphin.desktop" "_launch" "Dolphin" "Dolphin"      "$((META+70))"             # Meta+F
   setsc "$BROWSER_DESKTOP"        "_launch" "Browser" "Web Browser"  "$((META+66))"             # Meta+B
   setsc "omarchy-btop.desktop"    "_launch" "btop"    "btop"         "$((META+84))"             # Meta+T
-  setsc "org.kde.krunner.desktop" "_launch" "KRunner" "KRunner"      "$((ALT+32))"              # Alt+Space (Meta+Space -> omasteam-apps)
+  setsc "org.kde.krunner.desktop" "_launch" "KRunner" "KRunner"      "$((ALT+32))"              # Alt+Space only; Meta+Space stays free
   svc "kitty.desktop"        "Meta+Return,none,Launch kitty"
   svc "omarchy-btop.desktop" "Meta+T,none,btop"
   svc "$BROWSER_DESKTOP"     "Meta+B,none,Web Browser"
@@ -599,40 +599,33 @@ EOF
   install -m644 "$ART/bar/omasteam-power.qml" "$share/omasteam-power.qml"
   install -m755 "$SCRIPT_DIR/bin/omasteam-power" "$HOME/.local/bin/omasteam-power"
 
-  # ---- app launcher (Omarchy-style, Meta+Space) ----
-  # Separate from the system menu: omasteam-apps is JUST the .desktop app picker.
-  install -m644 "$ART/bar/omasteam-apps.qml" "$share/omasteam-apps.qml"
-  install -m755 "$SCRIPT_DIR/bin/omasteam-apps" "$HOME/.local/bin/omasteam-apps"
-  cat > ~/.local/share/applications/omasteam-apps.desktop <<EOF
-[Desktop Entry]
-Type=Application
-Name=omasteam Apps
-Comment=Omarchy-style application launcher (Meta+Space)
-Exec=$HOME/.local/bin/omasteam-apps
-Icon=applications-all
-Terminal=false
-Categories=System;
-NoDisplay=true
-StartupNotify=false
-EOF
+  # ---- retire the standalone app launcher (upgrades from <= 2026-07-25) ----
+  # The .desktop app list moved INTO the system menu ("Applications", plus the
+  # top-level search that reaches every leaf), so there is one menu for
+  # everything. Anything an older install left behind is removed here, including
+  # the Meta+Space grab — leaving it bound would keep launching a script that no
+  # longer exists. Meta+Space is now unbound; KRunner stays on Alt+Space only
+  # (configure_keybindings + the rebind autostart keep it off Meta+Space, which
+  # its .desktop still claims as a default).
+  rm -f "$HOME/.local/bin/omasteam-apps" \
+        "$share/omasteam-apps.qml" \
+        ~/.local/share/applications/omasteam-apps.desktop
+  rm -rf "${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-apps"
   update-desktop-database ~/.local/share/applications 2>/dev/null || true
-  # Bind Meta+Space -> the app launcher (krunner is moved to Alt+Space only in
-  # configure_keybindings so this key is free). Keycode 268435488 = Meta+Space.
-  # Same doRegister-then-setForeignShortcut dance as the system menu so the grab
-  # attaches live; the rebind autostart re-asserts it at login.
-  kwriteconfig6 --file kglobalshortcutsrc --group services \
-    --group omasteam-apps.desktop --key _launch "Meta+Space,none,omasteam Apps"
-  if have dbus-send; then
-    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
-    dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
-      org.kde.KGlobalAccel.doRegister \
-      array:string:"omasteam-apps.desktop","_launch","omasteam Apps","omasteam Apps" >/dev/null 2>&1 || true
-    dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
-      org.kde.KGlobalAccel.setForeignShortcut \
-      array:string:"omasteam-apps.desktop","_launch","omasteam Apps","omasteam Apps" \
-      array:int32:268435488 >/dev/null 2>&1 || true
+  # kreadconfig6 exits 0 for a missing key (printing nothing), so test the value.
+  if [ -n "$(kreadconfig6 --file kglobalshortcutsrc --group services \
+               --group omasteam-apps.desktop --key _launch 2>/dev/null)" ]; then
+    kwriteconfig6 --file kglobalshortcutsrc --group services \
+      --group omasteam-apps.desktop --key _launch --delete 2>/dev/null || true
+    # Drop the live grab too, or kglobalaccel keeps it until the next login.
+    if have dbus-send; then
+      dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
+        org.kde.KGlobalAccel.setForeignShortcut \
+        array:string:"omasteam-apps.desktop","_launch","omasteam Apps","omasteam Apps" \
+        array:int32: >/dev/null 2>&1 || true
+    fi
+    ok "old app launcher removed; Meta+Space unbound (apps live in the menu now)"
   fi
-  ok "app launcher installed; Meta+Space bound (live + persisted)"
 
   # Autostart at login (KDE Wayland). Exec MUST be an absolute path: the
   # graphical session's PATH does not include ~/.local/bin (that's added by

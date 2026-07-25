@@ -232,13 +232,12 @@ run_cmd() {
                   org.freedesktop.DBus.Properties.Set org.kde.KWin.VirtualDesktopManager \
                   current "$id" 2>/dev/null ;;
               esac ;;
-    menu)     # The bar's menu button opens the omasteam system menu (Meta+Alt+
-              # Space); fall back to KRunner if it isn't installed.
+    menu|apps)
+              # The bar's menu button opens the omasteam system menu (Meta+Alt+
+              # Space); fall back to KRunner if it isn't installed. `apps` is the
+              # retired app-launcher chip: the app list lives in the menu now, so
+              # an old bar — or a stale outbox row — lands in the same place.
               if command -v omasteam-menu >/dev/null; then omasteam-menu 2>/dev/null &
-              elif command -v krunner >/dev/null; then krunner 2>/dev/null & fi ;;
-    apps)     # The bar's apps button opens the omasteam app launcher (Meta+Space);
-              # fall back to KRunner if it isn't installed.
-              if command -v omasteam-apps >/dev/null; then omasteam-apps 2>/dev/null &
               elif command -v krunner >/dev/null; then krunner 2>/dev/null & fi ;;
     power)    # Tap on the power chip: toggle the omasteam power panel (lock /
               # suspend / log out / restart / shut down / return to gaming).

@@ -167,11 +167,12 @@ Needs a KDE Plasma 6 **Wayland** session (uses `org.kde.layershell` +
 `--with-bar` also installs the **omasteam system menu** — Omarchy's other
 signature piece (`omarchy-menu`), reproduced the same pure-QML way. Press
 **`Meta+Alt+Space`** (or click the bar's `☰`) for a centered, keyboard-driven
-settings surface that mirrors KDE's **System Settings** sidebar:
+surface that is the **one menu for everything** — your applications, plus a
+mirror of KDE's **System Settings** sidebar:
 
 ```
- Display & Monitor · Accessibility · Connected Devices · Networking ·
- Appearance & Style · Apps & Windows · Sound · Power Management ·
+ Applications · Display & Monitor · Accessibility · Connected Devices ·
+ Networking · Appearance & Style · Apps & Windows · Sound · Power Management ·
  Input Devices · Workspace · Security & Privacy · Startup & Shutdown ·
  Language & Time · Users · About · Open Full System Settings
  (+ omasteam's own Style / Capture / Power at the bottom)
@@ -179,6 +180,16 @@ settings surface that mirrors KDE's **System Settings** sidebar:
 
 - **Walker-style:** type to filter, `↑`/`↓` to move, `Enter` to open/run,
   `Esc`/`←` to go back, click-outside to dismiss. `Meta+Alt+Space` again toggles it.
+- **Search reaches everything.** A query typed at the **top level** searches the
+  whole tree at once — applications, settings leaves, themes — and every hit
+  shows the category it came from on the right (`Night Light` · *Display &
+  Monitor*, `solitude` · *Style · Themes*). Prefix matches rank first, so `fire`
+  lands on Firefox. Inside a branch, typing stays scoped to that branch.
+- **Applications** is the first row: every installed `.desktop` entry (standard
+  XDG dirs, `NoDisplay`/`Hidden` honoured, user overrides win), launched via
+  `gio launch`. This used to be a separate `Meta+Space` launcher; it was folded
+  in here so there is one surface to learn instead of two. `Meta+Space` is now
+  unbound, and KRunner stays on **`Alt+Space`**.
 - Leaves that omasteam has its **own** QML panel for open that panel instead of
   KDE's module — Wi-Fi, Bluetooth and Sound go to the bar's network / bluetooth /
   volume cards, **Display Configuration** opens omasteam's display panel
@@ -197,23 +208,14 @@ settings surface that mirrors KDE's **System Settings** sidebar:
   launcher drains and runs (a separate `menu_outbox` table, so the bar daemon
   never touches it).
 
-### App launcher (`Meta+Space`)
-
-Apps live in their **own** launcher (Omarchy keeps them separate from the system
-menu). Press **`Meta+Space`** (or click the bar's grid icon) for a walker-style,
-type-to-filter list of every installed `.desktop` app; `Enter` launches the
-highlighted one. Same pure-QML overlay + bash-back split as the system menu (its
-own `omasteam-apps` launcher and `apps_outbox` table). `Meta+Space` used to open
-KRunner — KRunner moves to **`Alt+Space`**.
-
 ## Key bindings (Omarchy-style)
 
 `Super+Return` kitty · `Super+Space` KRunner · `Super+F` files · `Super+B` browser ·
 `Super+T` btop · `Super+N` neovim · `Super+W` close · `Super+1..9` workspaces ·
 `Super+Shift+1..9` move-to-workspace · `Super+arrows` focus · `Super+Shift+arrows` move ·
 `Super+Shift+V` float · `Shift+F11` fullscreen · `Meta+Ctrl+Space` next wallpaper ·
-`Meta+Alt+Space` system menu · `Meta+Space` app launcher (both with `--with-bar`;
-`Alt+Space` KRunner).
+`Meta+Alt+Space` system menu — apps included (with `--with-bar`; `Alt+Space`
+KRunner, `Meta+Space` unbound).
 
 ## Layout
 
@@ -221,8 +223,8 @@ KRunner — KRunner moves to **`Alt+Space`**.
 install.sh        one idempotent entry point (desktop + terminal + theming + bar)
 bin/              omasteam-theme, theme (wrapper), omasteam-rebind-shortcuts,
                   omasteam-bar (launcher), omasteam-bar-daemon (bar backend),
-                  omasteam-menu (system-menu launcher + dispatcher),
-                  omasteam-apps (app-launcher + dispatcher),
+                  omasteam-menu (system-menu launcher + dispatcher; also builds
+                    the Applications level and launches .desktop entries),
                   omasteam-volume (volume-panel launcher + live dispatcher),
                   omasteam-network (network-panel launcher + nmcli backend),
                   omasteam-bluetooth (bluetooth-panel launcher + bluetoothctl backend),
@@ -232,8 +234,8 @@ bin/              omasteam-theme, theme (wrapper), omasteam-rebind-shortcuts,
                   omasteam-nightlight (night light panel + kwinrc/KWin D-Bus),
                   omasteam-surface-close (closes every overlay but one)
 artifacts/        static config files copied into place (kitty.conf, service menu, …)
-artifacts/bar/    omasteam-bar.qml (the QML bar) + omasteam-menu.qml (system menu)
-                  + omasteam-apps.qml (app launcher) + omasteam-volume.qml (volume
+artifacts/bar/    omasteam-bar.qml (the QML bar) + omasteam-menu.qml (system menu,
+                  apps included) + omasteam-volume.qml (volume
                   panel) + omasteam-network.qml (network panel) +
                   omasteam-bluetooth.qml (bluetooth panel) + omasteam-power.qml
                   (power panel) + omasteam-monitor.qml (system monitor)

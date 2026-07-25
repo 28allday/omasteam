@@ -113,12 +113,28 @@ Window {
     readonly property string icoUsers:    g(0xF0C0)  // users
     readonly property string icoInfo:     g(0xF05A)  // info-circle
     readonly property string icoAllSet:   g(0xF085)  // cogs
+    readonly property string icoApps:     g(0xF00A)  // th (grid) — Applications level
+    readonly property string icoApp:      g(0xF135)  // rocket — one application
 
     // ---- menu tree -----------------------------------------------------------
     // Leaf nodes carry `action` (an id the launcher dispatches); branch nodes
     // carry `children`. The Style > Themes level is filled from @@THEMES@@.
     property var themeList: { var t = @@THEMES@@; return (t instanceof Array) ? t : [] }
     readonly property string currentTheme: "@@CURRENT_THEME@@"
+
+    // The Applications level: @@APPS@@ is a JSON array of { label, action },
+    // action = `launch-desktop:<path>` (built by the launcher's apps_json).
+    // An un-rendered placeholder yields [].
+    property var appList: { var a = @@APPS@@; return (a instanceof Array) ? a : [] }
+
+    function appChildren() {
+        var out = []
+        for (var i = 0; i < appList.length; i++)
+            out.push({ glyph: icoApp, label: appList[i].label, action: appList[i].action })
+        if (out.length === 0)
+            out.push({ glyph: g(0xF071), label: "No applications found", action: "" })
+        return out
+    }
 
     function themeChildren() {
         var out = []
@@ -132,11 +148,12 @@ Window {
         return out
     }
 
-    // The menu IS the system-settings surface (apps live in the separate
-    // omasteam-apps launcher now). Top level mirrors KDE systemsettings' sidebar;
-    // each leaf's `kcm:<module>` action opens that module via kcmshell6. omasteam's
-    // own chrome (Style / Capture / Power) sits at the bottom.
+    // ONE menu for everything: Applications first (this replaced the separate
+    // omasteam-apps launcher), then a mirror of KDE systemsettings' sidebar —
+    // each leaf's `kcm:<module>` action opens that module via kcmshell6 — with
+    // omasteam's own chrome (Style / Capture / Power) at the bottom.
     property var menuTree: [
+        { glyph: icoApps,     label: "Applications", children: appChildren() },
         { glyph: icoDisplay,  label: "Display & Monitor", children: [
             { glyph: g(0xF108), label: "Display Configuration", action: "display" },
             { glyph: g(0xF0DB), label: "Screen Arrangement (KDE)", action: "kcm:kcm_kscreen" },
@@ -244,11 +261,39 @@ Window {
 
     readonly property string crumb: stack[stack.length - 1].title
 
-    // filtered items for the current level
+    // Flatten every leaf under `items` into `out`, remembering the category path
+    // it came from so a global hit can show where it lives. Leaves with no
+    // action (the "No themes installed" placeholder) are not results.
+    function collectLeaves(items, path, out) {
+        for (var i = 0; i < items.length; i++) {
+            var n = items[i]
+            if (n.children) collectLeaves(n.children, path ? (path + " · " + n.label) : n.label, out)
+            else if (n.action) out.push({ glyph: n.glyph, label: n.label, action: n.action, crumb: path })
+        }
+    }
+
+    // Rows for the current level, filtered by the query.
     property var view: {
-        var items = stack[stack.length - 1].items
         var f = filter.toLowerCase()
+        var items = stack[stack.length - 1].items
         if (!f) return items
+        // At the TOP level a query searches the whole tree — applications,
+        // settings leaves, themes — so one keystroke reaches anything the menu
+        // can do. Inside a branch it stays scoped to that branch, so drilling
+        // into Applications and typing still filters only apps.
+        if (stack.length === 1) {
+            var all = []
+            collectLeaves(menuTree, "", all)
+            // Prefix matches first: "fir" should land on Firefox, not on
+            // something that merely contains "fir" further in.
+            var starts = [], contains = []
+            for (var j = 0; j < all.length; j++) {
+                var at = (all[j].label || "").toLowerCase().indexOf(f)
+                if (at === 0) starts.push(all[j])
+                else if (at > 0) contains.push(all[j])
+            }
+            return starts.concat(contains)
+        }
         var out = []
         // (items[i].label || "") — a theme directory that produced no label
         // would otherwise throw mid-filter and blank the level.
@@ -370,7 +415,7 @@ Window {
                             Text {
                                 anchors.verticalCenter: parent.verticalCenter
                                 visible: input.text.length === 0
-                                text: win.crumb ? ("Search " + win.crumb + "…") : "Search…"
+                                text: win.crumb ? ("Search " + win.crumb + "…") : "Search everything…"
                                 color: win.alpha(win.cFg, 0.4)
                                 font { family: win.fontFamily; pixelSize: 14 }
                             }
@@ -437,13 +482,33 @@ Window {
                         }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
-                            // Leave room for the submenu chevron on the right.
-                            width: parent.width - 20 - parent.spacing - 26
+                            // Leave room for whatever occupies the right slot:
+                            // the category crumb on a global hit, else the
+                            // submenu chevron.
+                            width: parent.width - 20 - parent.spacing
+                                   - (crumb.visible ? crumb.width + 10 : 26)
                             elide: Text.ElideRight
                             text: modelData.label || ""
                             color: sel ? win.cBg : win.cFg
                             font { family: win.fontFamily; pixelSize: 14; bold: sel }
                         }
+                    }
+
+                    // Where a global-search hit lives ("Sound", "Style · Themes").
+                    // Only set by collectLeaves, so it never shows while browsing.
+                    Text {
+                        id: crumb
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.right: parent.right
+                        anchors.rightMargin: 14
+                        visible: (modelData.crumb || "") !== ""
+                        width: visible ? Math.min(implicitWidth, 150) : 0
+                        // Elide from the LEFT: the innermost category is the
+                        // informative end of "Appearance & Style · Themes".
+                        elide: Text.ElideLeft
+                        text: modelData.crumb || ""
+                        color: sel ? win.alpha(win.cBg, 0.65) : win.alpha(win.cFg, 0.35)
+                        font { family: win.fontFamily; pixelSize: 11 }
                     }
 
                     // submenu marker on the right

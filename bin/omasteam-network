@@ -132,7 +132,7 @@ regen_state() {
     && mv -f "$tmp" "$NET_STATE" || rm -f "$tmp"
 }
 
-# ---- render self-contained temp QML (values via ENVIRON — see omasteam-apps)
+# ---- render self-contained temp QML (values via ENVIRON — see omasteam-menu)
 render() {
   QML_STATE="$BAR_STATE" QML_NETSTATE="$NET_STATE" awk '
     function subst(line, ph, v,    out, p) {

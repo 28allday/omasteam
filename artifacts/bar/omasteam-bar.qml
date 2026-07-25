@@ -40,7 +40,6 @@ Window {
     // Nerd Font (FontAwesome) glyphs.
     readonly property string icoMenu:    ""
     readonly property string icoWifi:    ""
-    readonly property string icoApps:  String.fromCodePoint(0xF00A)   // th (grid) — app launcher
     readonly property string icoEth:   String.fromCodePoint(0xF0200)  // md-ethernet
     readonly property string icoCpu:   String.fromCodePoint(0xF2DB)   // fa-microchip — system monitor
     readonly property string icoBt:     String.fromCodePoint(0xF00AF)  // md-bluetooth
@@ -114,18 +113,13 @@ Window {
             anchors { left: parent.left; leftMargin: 8; verticalCenter: parent.verticalCenter }
             spacing: 6
 
-            // system menu (settings) — Meta+Alt+Space
+            // system menu — Meta+Alt+Space. One menu for everything: settings,
+            // omasteam's panels, and the Applications level (which is why there
+            // is no separate app-launcher chip next to this one anymore).
             Chip {
                 glyph: win.icoMenu
                 glyphColor: win.cAccent
                 onClicked: win.sendCmd("menu")
-            }
-
-            // app launcher — Meta+Space
-            Chip {
-                glyph: win.icoApps
-                glyphColor: win.cAccent
-                onClicked: win.sendCmd("apps")
             }
 
             Row {

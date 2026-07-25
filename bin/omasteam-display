@@ -203,7 +203,7 @@ run_disp_cmd() {
   esac
 }
 
-# ---- render self-contained temp QML (values via ENVIRON — see omasteam-apps)
+# ---- render self-contained temp QML (values via ENVIRON — see omasteam-menu)
 # Height must be static at creation (layer-shell), so it is computed here from
 # what this machine actually has: an output picker only with more than one
 # display, a brightness row only with a real backlight.
