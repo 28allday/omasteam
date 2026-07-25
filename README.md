@@ -46,6 +46,11 @@ cd ~/omasteam
 # after the reboot, pick a theme if you like:  theme omarchy tokyo-night
 ```
 
+> Hacking on omasteam itself? **[`NOTES.md`](NOTES.md)** is the working handover:
+> rebuilding after a wipe, the architecture in a page, and the non-obvious
+> gotchas (QML/layer-shell, KWin shortcut grabs, `pkill -f` self-matching) that
+> each cost hours to find.
+
 **Themes are optional and up to you** — the install doesn't apply one. After the reboot,
 pick any Omarchy theme whenever you like:
 
