@@ -201,8 +201,12 @@ run_cmd() {
               # fall back to KRunner if it isn't installed.
               if command -v omasteam-apps >/dev/null; then omasteam-apps 2>/dev/null &
               elif command -v krunner >/dev/null; then krunner 2>/dev/null & fi ;;
-    power)    qdbus6 org.kde.LogoutPrompt /LogoutPrompt promptLogout 2>/dev/null \
-                || qdbus6 org.kde.ksmserver /KSMServer logout 1 0 3 2>/dev/null & ;;
+    power)    # Tap on the power chip: toggle the omasteam power panel (lock /
+              # suspend / log out / restart / shut down / return to gaming).
+              # Fall back to KDE's stock prompt if it isn't installed.
+              if command -v omasteam-power >/dev/null; then omasteam-power 2>/dev/null &
+              else qdbus6 org.kde.LogoutPrompt /LogoutPrompt promptLogout 2>/dev/null \
+                || qdbus6 org.kde.ksmserver /KSMServer logout 1 0 3 2>/dev/null & fi ;;
     return-to-gaming)
               # Mirror ~/Desktop/Return.desktop: switch straight to Game Mode
               # when this Deck logs into desktop by default, else log out (which

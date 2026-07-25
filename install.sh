@@ -580,6 +580,10 @@ EOF
   install -m644 "$ART/bar/omasteam-bluetooth.qml" "$share/omasteam-bluetooth.qml"
   install -m755 "$SCRIPT_DIR/bin/omasteam-bluetooth" "$HOME/.local/bin/omasteam-bluetooth"
 
+  # ---- power panel (Omarchy-quattro-style, from the bar's power chip) ----
+  install -m644 "$ART/bar/omasteam-power.qml" "$share/omasteam-power.qml"
+  install -m755 "$SCRIPT_DIR/bin/omasteam-power" "$HOME/.local/bin/omasteam-power"
+
   # ---- app launcher (Omarchy-style, Meta+Space) ----
   # Separate from the system menu: omasteam-apps is JUST the .desktop app picker.
   install -m644 "$ART/bar/omasteam-apps.qml" "$share/omasteam-apps.qml"

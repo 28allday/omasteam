@@ -1,0 +1,161 @@
+#!/bin/bash
+# omasteam-power — Omarchy-quattro-style power/session panel for SteamOS + KDE.
+#
+# Opened from the bar's power chip, replacing KDE's stock LogoutPrompt. Same
+# pure-userland approach as the other bar surfaces — stock Qt6 + org.kde.
+# layershell via qmlscene.
+#
+# This script is BOTH the launcher and the backend: the QML panel pushes an
+# action to a SQLite outbox (table `power_outbox`) which this script polls
+# WHILE the panel is up, then runs the matching session verb. It also keeps
+# power-state.json fresh (host/user/uptime) so the hero line stays honest on
+# a panel left open.
+#
+# Launching again while the panel is up closes it (bar-chip toggle).
+set -uo pipefail
+
+export PATH="$HOME/.local/bin:$PATH"
+
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+QML=""
+for cand in \
+  "$HERE/../artifacts/bar/omasteam-power.qml" \
+  "$HOME/.local/share/omasteam/bar/omasteam-power.qml"; do
+  [ -f "$cand" ] && { QML="$cand"; break; }
+done
+[ -n "$QML" ] || { echo "omasteam-power: cannot find omasteam-power.qml" >&2; exit 1; }
+
+QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
+[ -n "$QMLSCENE" ] || { echo "omasteam-power: qmlscene not found" >&2; exit 1; }
+
+BAR_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar/state.json"
+PW_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-power"
+mkdir -p "$PW_DIR"
+RENDERED="$PW_DIR/omasteam-power.rendered.qml"
+PW_STATE="$PW_DIR/power-state.json"
+
+# ---- single-instance toggle (PID file — see omasteam-volume for why) --------
+PIDFILE="$PW_DIR/panel.pid"
+oldpid="$(cat "$PIDFILE" 2>/dev/null || true)"
+if [ -n "$oldpid" ] && grep -aq "omasteam-power.rendered.qml" "/proc/$oldpid/cmdline" 2>/dev/null; then
+  kill "$oldpid" 2>/dev/null
+  rm -f "$PIDFILE"
+  exit 0
+fi
+rm -f "$PIDFILE"
+
+# ---- system state -> power-state.json ---------------------------------------
+# Battery is NOT duplicated here: the panel reads it from the bar daemon's
+# state.json, which already tracks it.
+regen_state() {
+  local tmp host user up kern gaming
+  tmp=$(mktemp "$PW_STATE.XXXXXX") || return
+  host="$(hostnamectl hostname 2>/dev/null || hostname 2>/dev/null || echo "")"
+  user="${USER:-$(id -un 2>/dev/null)}"
+  up="$(uptime -p 2>/dev/null)"
+  kern="$(uname -r 2>/dev/null)"
+  # gaming=true when "Return to Gaming" switches straight to Game Mode; on a
+  # Deck that boots to gaming it is a logout instead (same rule as the daemon).
+  gaming=false
+  [ "$(steamosctl get-default-login-mode 2>/dev/null)" = desktop ] && gaming=true
+  jq -n --arg host "$host" --arg user "$user" --arg up "$up" \
+        --arg kern "$kern" --argjson gaming "$gaming" \
+    '{host: $host, user: $user, uptime: $up, kernel: $kern, gaming: $gaming}' \
+    > "$tmp" && mv -f "$tmp" "$PW_STATE" || rm -f "$tmp"
+}
+
+# ---- render self-contained temp QML (values via ENVIRON — see omasteam-apps)
+render() {
+  QML_STATE="$BAR_STATE" QML_SYSSTATE="$PW_STATE" awk '
+    function subst(line, ph, v,    out, p) {
+      out = ""
+      p = index(line, ph)
+      while (p > 0) {
+        out = out substr(line, 1, p - 1) v
+        line = substr(line, p + length(ph))
+        p = index(line, ph)
+      }
+      return out line
+    }
+    { line = $0
+      line = subst(line, "@@STATE@@",    ENVIRON["QML_STATE"])
+      line = subst(line, "@@SYSSTATE@@", ENVIRON["QML_SYSSTATE"])
+      print line
+    }' "$QML" > "$RENDERED"
+}
+
+# ---- SQLite outbox (table `power_outbox`) -----------------------------------
+drain_outbox() { # $1 = 1 to emit, 0 to purge silently
+  command -v sqlite3 >/dev/null || return
+  local db c emit="$1"
+  while IFS= read -r db; do
+    [ -f "$db" ] || continue
+    sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='power_outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
+    if [ "$emit" = 1 ]; then
+      while IFS= read -r c; do [ -n "$c" ] && printf '%s\n' "$c"; done \
+        < <(sqlite3 "$db" "SELECT cmd FROM power_outbox ORDER BY id;" 2>/dev/null)
+    fi
+    sqlite3 "$db" "DELETE FROM power_outbox;" 2>/dev/null
+  done < <(find "$HOME/.local/share/QtProject" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+}
+
+detached() { # run a shell snippet in its OWN session, off this script's tree
+  # logout/reboot/shutdown tear down the session this script lives in, and the
+  # panel is still unmapping when the verb lands — a plain child would be up
+  # for SIGHUP mid-call. `setsid bash -c` (NOT `setsid -f cmd`, which returns
+  # success immediately and would make every `||` fallback below dead code)
+  # gives the request its own session while keeping the fallback chain intact.
+  setsid bash -c "$1" >/dev/null 2>&1 &
+}
+
+run_power_cmd() {
+  case "$1" in
+    lock)
+      detached 'qdbus6 org.freedesktop.ScreenSaver /ScreenSaver Lock || loginctl lock-session' ;;
+    suspend)
+      detached 'systemctl suspend || qdbus6 --system org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager.Suspend true' ;;
+    logout)
+      detached 'qdbus6 org.kde.Shutdown /Shutdown org.kde.Shutdown.logout || qdbus6 org.kde.ksmserver /KSMServer logout 0 0 0' ;;
+    reboot)
+      detached 'qdbus6 org.kde.Shutdown /Shutdown org.kde.Shutdown.logoutAndReboot || systemctl reboot' ;;
+    shutdown)
+      detached 'qdbus6 org.kde.Shutdown /Shutdown org.kde.Shutdown.logoutAndShutdown || systemctl poweroff' ;;
+    gaming)
+      # Same rule as the bar daemon's return-to-gaming: switch straight to Game
+      # Mode when this Deck logs into desktop by default, else log out (which
+      # drops back to Game Mode on a Deck that boots to gaming).
+      if [ "$(steamosctl get-default-login-mode 2>/dev/null)" = desktop ]; then
+        detached 'steamosctl switch-to-game-mode'
+      else
+        detached 'qdbus6 org.kde.Shutdown /Shutdown org.kde.Shutdown.logout || qdbus6 org.kde.ksmserver /KSMServer logout 0 0 0'
+      fi ;;
+    "") : ;;
+    *)  echo "omasteam-power: unknown action '$1'" >&2 ;;
+  esac
+}
+
+# ---- run --------------------------------------------------------------------
+regen_state                      # snapshot before first paint
+render
+
+drain_outbox 0                   # purge anything stale first
+QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}" \
+QT_WAYLAND_SHELL_INTEGRATION=layer-shell \
+QML_XHR_ALLOW_FILE_READ=1 \
+  "$QMLSCENE" "$RENDERED" >/dev/null 2>&1 &
+QPID=$!
+echo "$QPID" > "$PIDFILE"
+
+# Live dispatch while the panel is up + a slow refresh (~15 s) so the uptime
+# line doesn't go stale on a panel left open.
+tick=0
+while kill -0 "$QPID" 2>/dev/null; do
+  while IFS= read -r c; do run_power_cmd "$c"; done < <(drain_outbox 1)
+  tick=$((tick + 1))
+  [ $((tick % 60)) -eq 0 ] && regen_state
+  sleep 0.25
+done
+rm -f "$PIDFILE"
+# The panel unmaps itself before the verb fires, so the action usually lands
+# here, after qmlscene has exited.
+while IFS= read -r c; do run_power_cmd "$c"; done < <(drain_outbox 1)
