@@ -40,10 +40,13 @@ Things install.sh does that are easy to forget it does:
 
 ### Git state at time of writing
 
-`master`, working tree clean, **50+ commits ahead of origin, deliberately NOT
-pushed** — the user wants more system work done before this goes public. Push
-with `git push origin master` when they say so (no credentials in the agent
-environment; GitHub HTTPS needs a PAT, or set up SSH).
+`master`, working tree clean, **in sync with origin as of 2026-07-28** — the bar,
+the seven panels and the merged system menu are all public now. The earlier hold
+("more system work before this goes public") is lifted; push normally.
+
+Note the state in §6 still stands: several panels are verified by injection and
+screenshot but have never been finger-tested on real Deck hardware. Public does
+not mean confirmed.
 
 ### Backups on the drive
 
@@ -414,4 +417,5 @@ After changing a QML surface or a launcher:
    script**, see the `pkill` warning in §3.
 4. Sweep for QML warnings **via a file**, per §2. Zero warnings is the standard;
    all surfaces were clean as of this writing.
-5. `git commit`. **Do not push.**
+5. `git commit`, then `git push origin master` and `git push drive master` — the
+   mirror is worthless if it lags the checkout.

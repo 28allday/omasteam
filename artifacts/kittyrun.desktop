@@ -6,8 +6,8 @@ Actions=runInKitty;
 X-KDE-AuthorizeAction=shell_access
 
 [Desktop Action runInKitty]
-TryExec=/home/deck/.local/bin/kitty
-Exec=/home/deck/.local/bin/kitty --hold -e %f
-Icon=/home/deck/.local/kitty.app/share/icons/hicolor/256x256/apps/kitty.png
+TryExec=@HOME@/.local/bin/kitty
+Exec=@HOME@/.local/bin/kitty --hold -e %f
+Icon=@HOME@/.local/kitty.app/share/icons/hicolor/256x256/apps/kitty.png
 Name=Run In kitty
 Comment=Run within kitty

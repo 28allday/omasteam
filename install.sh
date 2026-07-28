@@ -136,7 +136,12 @@ set_default_terminal() {
   cp -f "$ART/xdg-terminals.list"          ~/.config/xdg-terminals.list
   # Right-click "Run In kitty" service menu (shadows the hardcoded Konsole one)
   mkdir -p ~/.local/share/kio/servicemenus
-  cp -f "$ART/kittyrun.desktop" ~/.local/share/kio/servicemenus/kittyrun.desktop
+  # @HOME@ is substituted rather than left literal: TryExec/Exec/Icon must be
+  # absolute (the session PATH has no ~/.local/bin) but the account is not
+  # always called `deck`, and a TryExec that misses makes the entry vanish
+  # silently instead of erroring.
+  sed -e "s|@HOME@|$HOME|g" "$ART/kittyrun.desktop" \
+    > ~/.local/share/kio/servicemenus/kittyrun.desktop
   chmod +x ~/.local/share/kio/servicemenus/kittyrun.desktop
   ok "kdeglobals + \$TERMINAL + xdg-terminals.list + service menu set"
 }
