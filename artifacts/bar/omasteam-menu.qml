@@ -101,7 +101,11 @@ Window {
     readonly property string icoAccess:   g(0xF29A)  // universal-access
     readonly property string icoDevices:  g(0xF1E6)  // plug
     readonly property string icoNet:      g(0xF0AC)  // globe
-    readonly property string icoLook:     g(0xF53F)  // palette
+    // Not the obvious palette (0xF53F): that one is Font Awesome *5*, and the
+    // Nerd Font patch carries only the legacy FA4 block, so it rendered as an
+    // empty box. Codepoints here are checked against the shipped font with
+    // `fc-list ":charset=<cp>"` before use.
+    readonly property string icoLook:     g(0xF0D0)  // magic wand
     readonly property string icoWindows:  g(0xF2D0)  // window-maximize
     readonly property string icoSound:    g(0xF028)  // volume-up
     readonly property string icoPowerMgt: g(0xF0E7)  // bolt
@@ -176,7 +180,7 @@ Window {
         ]},
         { glyph: icoLook,     label: "Appearance & Style", children: [
             { glyph: g(0xF03E), label: "Wallpaper",    action: "kcm:kcm_wallpaper" },
-            { glyph: g(0xF53F), label: "Colors",       action: "kcm:kcm_colors" },
+            { glyph: g(0xF1FB), label: "Colors",       action: "kcm:kcm_colors" },
             { glyph: g(0xF1FC), label: "Plasma Style", action: "kcm:kcm_desktoptheme" },
             { glyph: g(0xF042), label: "Global Theme", action: "kcm:kcm_lookandfeel" },
             { glyph: g(0xF009), label: "Icons",        action: "kcm:kcm_icons" },

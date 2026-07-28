@@ -399,9 +399,26 @@ power-profile controls are all untested and some are hidden by design.
 - Tailscale / Dropbox panels (quattro has them) — only if those are installed.
 - `bin/omasteam-bar` still uses `pkill -f`; convert to the PID-file pattern if it
   ever bites in normal use.
-- **Cosmetic bug:** the menu's *Appearance & Style* row glyph (`U+F53F`,
-  `omasteam-menu.qml`) renders as an empty box — that codepoint isn't in this
-  font's FontAwesome range. One-character fix, just needs a verified replacement.
+- ~~**Cosmetic bug:** the menu's *Appearance & Style* row glyph renders as an
+  empty box.~~ **Fixed 2026-07-28.** `U+F53F` is Font Awesome *5*; the Nerd Font
+  patch carries only the legacy FA4 block here. It was used twice — the category
+  and its own *Colors* leaf — now `U+F0D0` (wand) and `U+F1FB` (eyedropper).
+  `U+F042` was the tempting pick for the category but is already the *Global
+  Theme* leaf, which would have made the parent duplicate its child.
+
+  **Check codepoints before using them**, all nine surfaces at once:
+
+  ```bash
+  for f in artifacts/bar/*.qml; do
+    for cp in $(sed 's://.*::' "$f" | grep -oE '0x[0-9A-F]{4}' | sort -u); do
+      h="${cp#0x}"; case "${h,,}" in e*|f*) ;; *) continue ;; esac
+      fc-list ":charset=${h,,}" family | grep -qi "JetBrainsMono Nerd Font" \
+        || echo "MISSING $cp in $f"
+    done
+  done
+  ```
+
+  All 94 glyphs across the nine surfaces passed this as of 2026-07-28.
 
 ---
 

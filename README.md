@@ -214,6 +214,30 @@ mirror of KDE's **System Settings** sidebar:
   launcher drains and runs (a separate `menu_outbox` table, so the bar daemon
   never touches it).
 
+### What's confirmed, and what isn't
+
+Worth knowing before you rely on a panel. The bar, the system menu, the theme
+switcher, tiling, the power panel and the system monitor are **used daily and
+confirmed working**. The rest is built and verified by state injection and
+screenshots, but has **not been finger-tested on real Deck hardware**:
+
+- a real **Bluetooth pair** (headphones, controller)
+- **Wi-Fi connect with a password** — the code path exists, no network was
+  available to try it on
+- the **display** panel's apply-on-approval countdown against an actual mode change
+- the **night light** panel
+- the **battery** chip and the display panel's **brightness** row — the machine
+  this was developed on is a mini PC with neither a battery nor a backlight, so
+  those paths are hidden by design there and only appear on a Deck
+
+None of it can hurt the system — everything lives in `~/.local` and the Plasma
+panel is backed up before removal — but if something misbehaves, that list is
+where to look first. Reports welcome.
+
+**No system tray.** Removing the Plasma panel takes the SNI tray with it; the bar
+does not reimplement one (an SNI host in plain QML is a project in itself). Apps
+that only live in the tray will have nowhere to go.
+
 ## Key bindings (Omarchy-style)
 
 `Super+Return` kitty · `Super+Space` KRunner · `Super+F` files · `Super+B` browser ·
