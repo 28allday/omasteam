@@ -32,31 +32,88 @@ mkdir -p "$STATE_DIR"
 QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
 [ -n "$QMLSCENE" ] || { echo "omasteam-bar: qmlscene not found" >&2; exit 1; }
 
-# The running bar is `qmlscene .../omasteam-bar.rendered.qml`; the backend is
-# `.../omasteam-bar-daemon`. Match those exact command lines to stop them.
-BAR_PAT="omasteam-bar.rendered.qml"
-DAEMON_PAT="omasteam-bar-daemon"
+# ---- finding our own processes ---------------------------------------------
+# This used to be `pkill -f omasteam-bar.rendered.qml` / `-f omasteam-bar-daemon`,
+# which matches ANY process whose command line merely CONTAINS the pattern —
+# including the shell that just typed it. That self-match killed the calling
+# shell (a mysterious exit 144) eight times; see NOTES.md §3.
+#
+# The fix is to stop substring-matching the whole command line and instead check
+# argv BY POSITION. A real bar is argv[0]=qmlscene6, argv[1]=<...rendered.qml>;
+# a real daemon is argv[0]=bash, argv[1]=<...omasteam-bar-daemon>. A shell that
+# merely mentions either path has argv[0]=bash and argv[1]=-c, with the path
+# buried further along — so it can never satisfy these predicates.
+BAR_PID="$STATE_DIR/bar.pid"
+DAEMON_PID="$STATE_DIR/daemon.pid"
+
+# argv of $1 into the ARGV array. /proc/<pid>/cmdline is NUL-separated, hence
+# `mapfile -d ''` rather than a read that would glue the arguments together.
+readargv() { ARGV=(); [ -r "/proc/$1/cmdline" ] || return 1; mapfile -d '' -t ARGV < "/proc/$1/cmdline" 2>/dev/null; [ ${#ARGV[@]} -gt 0 ]; }
+
+# NB the `:-` on every ARGV element. This script runs under `set -u`, and these
+# predicates are applied to EVERY process on the box — plenty have a one-element
+# command line, where a bare ${ARGV[1]} is an unbound-variable fatal that kills
+# the whole script mid-sweep (caught exactly that way: `stop` silently gave up
+# partway through and left the bar running).
+is_bar() {
+  readargv "$1" || return 1
+  case "${ARGV[0]:-}" in */qmlscene|*/qmlscene6|qmlscene|qmlscene6) ;; *) return 1 ;; esac
+  [ "${ARGV[1]:-}" ] && [ "${ARGV[1]##*/}" = "omasteam-bar.rendered.qml" ]
+}
+is_daemon() {
+  readargv "$1" || return 1
+  # argv[0] when exec'd directly, argv[1] under the `#!/usr/bin/env bash` shebang.
+  [ "${ARGV[0]##*/}" = "omasteam-bar-daemon" ] && return 0
+  [ "${ARGV[1]:-}" ] && [ "${ARGV[1]##*/}" = "omasteam-bar-daemon" ]
+}
+
+# Kill by PID file first (exact — we wrote it), then sweep /proc for orphans a
+# lost PID file would otherwise strand. The sweep is only safe because the
+# predicates above are positional; never loosen them to a substring test.
+kill_kind() {  # $1 = predicate, $2 = pidfile
+  local p found=1
+  p="$(cat "$2" 2>/dev/null || true)"
+  case "$p" in ''|*[!0-9]*) : ;; *) "$1" "$p" && { kill "$p" 2>/dev/null; found=0; } ;; esac
+  local d
+  for d in /proc/[0-9]*; do
+    p="${d#/proc/}"
+    [ "$p" = "$$" ] && continue
+    "$1" "$p" 2>/dev/null && { kill "$p" 2>/dev/null; found=0; }
+  done
+  rm -f "$2"
+  return $found
+}
+running_kind() {  # $1 = predicate — prints the pid if one is up
+  local p d
+  p="$(cat "$2" 2>/dev/null || true)"
+  case "$p" in ''|*[!0-9]*) : ;; *) "$1" "$p" && { echo "$p"; return 0; } ;; esac
+  for d in /proc/[0-9]*; do
+    p="${d#/proc/}"
+    [ "$p" = "$$" ] && continue
+    "$1" "$p" 2>/dev/null && { echo "$p"; return 0; }
+  done
+  return 1
+}
+stop_all() { kill_kind is_daemon "$DAEMON_PID"; kill_kind is_bar "$BAR_PID"; }
 
 case "${1:-}" in
   stop)
-    pkill -f "$DAEMON_PAT" 2>/dev/null
-    pkill -f "$BAR_PAT" 2>/dev/null
+    stop_all
     echo "omasteam-bar: stopped"; exit 0 ;;
   restart)
-    "$0" stop; sleep 0.3 ;;
+    stop_all; sleep 0.3 ;;
   status)
-    pgrep -f "$BAR_PAT" >/dev/null && echo "bar: running" || echo "bar: stopped"
-    pgrep -f "$DAEMON_PAT" >/dev/null && echo "daemon: running" || echo "daemon: stopped"
+    running_kind is_bar    "$BAR_PID"    >/dev/null && echo "bar: running"    || echo "bar: stopped"
+    running_kind is_daemon "$DAEMON_PID" >/dev/null && echo "daemon: running" || echo "daemon: stopped"
     exit 0 ;;
 esac
 
 # Single instance: replace any bar/daemon already running (autostart may have
-# launched one). Without the bar pkill, a second launch stacks a duplicate
-# layer-shell surface on top of the first. Our own command line is
-# `omasteam-bar`, not `...rendered.qml`/`...-daemon`, so pkill won't hit us.
-pkill -f "$BAR_PAT" 2>/dev/null
-pkill -f "$DAEMON_PAT" 2>/dev/null
+# launched one). Without this, a second launch stacks a duplicate layer-shell
+# surface on top of the first.
+stop_all
 "$DAEMON" >/dev/null 2>&1 &
+echo $! > "$DAEMON_PID"
 # Give it a beat to write the first state so the bar starts populated.
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$STATE" ] && break; sleep 0.1; done
 
@@ -84,4 +141,7 @@ QML_STATE="$STATE" awk '
   }
   { print subst($0, "@@STATE@@", ENVIRON["QML_STATE"]) }' "$QML" > "$RENDERED"
 
+# `exec` replaces this shell in place, so the bar keeps THIS pid — recording $$
+# here is exact, and avoids the race of trying to look the surface up afterwards.
+echo $$ > "$BAR_PID"
 exec "$QMLSCENE" "$RENDERED"

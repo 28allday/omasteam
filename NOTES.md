@@ -207,19 +207,35 @@ brightness/display controls; ours is a system monitor.
 
 ## 3. Bash / shell gotchas
 
-- **⚠️ `pkill -f` / `pgrep -f` self-match — this has bitten SEVEN times**
+- **⚠️ `pkill -f` / `pgrep -f` self-match — this bit EIGHT times**
   (each time as a mysterious exit 144). The pattern matches *any* process whose
   command line contains it, **including the agent's own tool shell**, because the
   command line holds the pattern you just typed. Never `pkill -f`/`pgrep -f` with
   a pattern that appears in the same command line. Kill by **PID** after verifying
   against `/proc/<pid>/cmdline`, or use `pgrep -x <comm>` and filter its output.
-  Every surface now single-instances via a **/proc-verified PID file**
+  Every surface single-instances via a **/proc-verified PID file**
   (`~/.local/state/omasteam-<x>/panel.pid`) for exactly this reason.
-  `bin/omasteam-bar` is the last holdout still using `pkill -f` (`BAR_PAT`,
-  `DAEMON_PAT`) — safe in normal use, but it means **restarting the bar from an
-  agent shell whose command line contains `omasteam-bar-daemon` or
-  `omasteam-bar.rendered.qml` kills that shell.** Run the restart from a
-  neutrally-named helper script.
+
+  **`bin/omasteam-bar` was the last holdout; converted 2026-08-03** (the eighth
+  bite was an agent combining `install …/omasteam-bar-daemon` with a restart in
+  one shell). It now records `bar.pid` / `daemon.pid` under
+  `~/.local/state/omasteam-bar/` and identifies processes by **argv position**,
+  not by substring:
+
+  | | argv[0] | argv[1] |
+  |---|---|---|
+  | real bar | `qmlscene6` | `…/omasteam-bar.rendered.qml` |
+  | real daemon | `bash` | `…/omasteam-bar-daemon` |
+  | a shell that merely *mentions* either | `bash` | `-c` |
+
+  That last row is the whole trick — a mentioning shell buries the path in
+  `argv[2]`, so it can never satisfy the predicate. **Restarting the bar from any
+  shell is now safe**, and the neutrally-named helper script is no longer needed.
+  Two traps if you touch this code: the predicates run against *every* process on
+  the box, so (a) every `${ARGV[n]}` needs `:-` or `set -u` turns a one-element
+  command line into a fatal mid-sweep (that bug shipped for one test cycle and
+  made `stop` quietly give up, leaving the bar running), and (b) never relax the
+  positional check back to a substring match.
 - **`$$` is the MAIN shell's pid inside a background subshell.** Two concurrent
   regens using `"$FILE.$$"` collide (seen as `mv: cannot stat` noise). Use
   `mktemp "$FILE.XXXXXX"`.
@@ -402,8 +418,8 @@ power-profile controls are all untested and some are hidden by design.
 - A real SNI **system tray** — hard in plain QML, and it's the reason removing the
   Plasma panel loses the tray entirely.
 - Tailscale / Dropbox panels (quattro has them) — only if those are installed.
-- `bin/omasteam-bar` still uses `pkill -f`; convert to the PID-file pattern if it
-  ever bites in normal use.
+- ~~`bin/omasteam-bar` still uses `pkill -f`; convert to the PID-file pattern if it
+  ever bites in normal use.~~ **Done 2026-08-03** — see §3.
 - ~~**Cosmetic bug:** the menu's *Appearance & Style* row glyph renders as an
   empty box.~~ **Fixed 2026-07-28.** `U+F53F` is Font Awesome *5*; the Nerd Font
   patch carries only the legacy FA4 block here. It was used twice — the category
@@ -435,8 +451,9 @@ After changing a QML surface or a launcher:
    is a deploy target.
 2. Install to `~/.local` (`./install.sh --with-bar`, or `install -m644/-m755` the
    individual files).
-3. Restart the bar if you touched the bar or the daemon — from a **neutrally named
-   script**, see the `pkill` warning in §3.
+3. Restart the bar if you touched the bar or the daemon (`omasteam-bar restart`).
+   Safe from any shell since the §3 conversion — the neutrally-named helper script
+   that step used to require is no longer needed.
 4. Sweep for QML warnings **via a file**, per §2. Zero warnings is the standard;
    all surfaces were clean as of this writing.
 5. `git commit`, then `git push origin master` and `git push drive master` — the
