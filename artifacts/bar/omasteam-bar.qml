@@ -52,6 +52,12 @@ Window {
     readonly property string icoBolt:    ""
     readonly property string icoPower:   ""
 
+    // fa-moon-o, from the legacy FA4 block this Nerd Font patch actually
+    // carries. Verified with the fc-list charset check in NOTES.md §6 — the FA5
+    // moon is absent here and would render as an empty box, same trap as the
+    // menu's old Appearance glyph.
+    readonly property string icoNight: String.fromCodePoint(0xF186)
+
     function batIcon(pct) {
         if (pct >= 88) return ""
         if (pct >= 63) return ""
@@ -187,6 +193,21 @@ Window {
                 label: sys.cpu + "%"
                 glyphColor: sys.cpu >= 85 ? "#f7768e" : win.cFg
                 onClicked: win.sendCmd("mon-panel")
+            }
+
+            // night light — tap toggles the panel (it single-instances, so a
+            // second tap closes it); long-press flips the tint straight on/off
+            // without opening anything, mirroring the volume chip's tap/hold
+            // split. Hidden entirely when KWin reports it cannot tint, so the
+            // chip never sits there as a dead control.
+            Chip {
+                readonly property var nl: win.st.nl || ({ avail: false, on: false })
+                visible: nl.avail
+                glyph: win.icoNight
+                glyphColor: nl.on ? "#e0af68" : win.alpha(win.cFg, 0.45)
+                hoverGlyphColor: win.cFg
+                onClicked: win.sendCmd("nl-panel")
+                onLongPressed: win.sendCmd("nl-toggle")
             }
 
             // bluetooth

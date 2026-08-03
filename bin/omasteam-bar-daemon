@@ -145,6 +145,21 @@ bluetooth_json() {
   printf '"bt":{"on":%s,"name":"%s"}' "$on" "$name"
 }
 
+nightlight_json() {
+  # {"avail":bool,"on":bool}. KWin publishes night light READ-ONLY on D-Bus, so
+  # this is the only honest source for "is it on" (kwinrc's [NightColor]Active is
+  # unset until something first writes it — absent means default, not off).
+  # One GetAll rather than a property read each: this runs every tick.
+  # `avail` is false where the compositor can't tint at all; the bar hides the
+  # chip in that case instead of offering a toggle that silently does nothing.
+  local avail=false on=false props
+  props=$(qdbus6 "$KWIN" /org/kde/KWin/NightLight \
+            org.freedesktop.DBus.Properties.GetAll org.kde.KWin.NightLight 2>/dev/null)
+  case "$props" in *"available: true"*) avail=true ;; esac
+  case "$props" in *"enabled: true"*)   on=true ;; esac
+  printf '"nl":{"avail":%s,"on":%s}' "$avail" "$on"
+}
+
 # KWin's VirtualDesktopManager.desktops is a(uss) (position,id,name) which plain
 # qdbus6 can't print — only `--literal` does. The literal output lists desktops
 # in position order, so the UUIDs appear in order too. Emit one id per line.
@@ -183,6 +198,7 @@ write_state() {
     printf '%s,' "$(volume_json)"
     printf '%s,' "$(network_json)"
     printf '%s,' "$(bluetooth_json)"
+    printf '%s,' "$(nightlight_json)"
     printf '%s,' "$(sys_json)"
     printf '%s,' "$(battery_json)"
     printf '%s,' "$(desktops_json)"
@@ -218,6 +234,24 @@ run_cmd() {
               # Fall back to whatever task manager is around if not installed.
               if command -v omasteam-monitor >/dev/null; then omasteam-monitor 2>/dev/null &
               elif command -v plasma-systemmonitor >/dev/null; then plasma-systemmonitor >/dev/null 2>&1 &
+              fi ;;
+    nl-panel)
+              # Tap on the night light chip: toggle the omasteam night light
+              # panel (it single-instances itself, so a second tap closes it).
+              # Fall back to the stock KCM if it isn't installed.
+              if command -v omasteam-nightlight >/dev/null; then omasteam-nightlight 2>/dev/null &
+              else kcmshell6 kcm_nightlight >/dev/null 2>&1 & fi ;;
+    nl-toggle)
+              # Long-press: flip the tint without opening a panel. KWin exposes
+              # night light read-only, so kwinrc is the only way in — and it MUST
+              # be --notify, or NightLightManager's KConfigWatcher never sees the
+              # change (a plain write, even followed by `reconfigure`, is
+              # silently ignored). Same reasoning as bin/omasteam-nightlight.
+              if [ "$(qdbus6 "$KWIN" /org/kde/KWin/NightLight \
+                        org.kde.KWin.NightLight.enabled 2>/dev/null)" = true ]; then
+                kwriteconfig6 --notify --file kwinrc --group NightColor --key Active false
+              else
+                kwriteconfig6 --notify --file kwinrc --group NightColor --key Active true
               fi ;;
     desktop-*)
               # The bar sends a 1-based position; KWin switches by id, so map it.
