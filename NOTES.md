@@ -211,7 +211,7 @@ brightness/display controls; ours is a system monitor.
 
 - **⚠️ `pkill -f` / `pgrep -f` self-match — this bit EIGHT times**
   (each time as a mysterious exit 144). The pattern matches *any* process whose
-  command line contains it, **including the agent's own tool shell**, because the
+  command line contains it, **including the shell you typed it in**, because that
   command line holds the pattern you just typed. Never `pkill -f`/`pgrep -f` with
   a pattern that appears in the same command line. Kill by **PID** after verifying
   against `/proc/<pid>/cmdline`, or use `pgrep -x <comm>` and filter its output.
@@ -219,8 +219,8 @@ brightness/display controls; ours is a system monitor.
   (`~/.local/state/omasteam-<x>/panel.pid`) for exactly this reason.
 
   **`bin/omasteam-bar` was the last holdout; converted 2026-08-03** (the eighth
-  bite was an agent combining `install …/omasteam-bar-daemon` with a restart in
-  one shell). It now records `bar.pid` / `daemon.pid` under
+  bite was a single shell that combined `install …/omasteam-bar-daemon` with a
+  restart). It now records `bar.pid` / `daemon.pid` under
   `~/.local/state/omasteam-bar/` and identifies processes by **argv position**,
   not by substring:
 
@@ -362,9 +362,9 @@ brightness/display controls; ours is a system monitor.
 
 ---
 
-## 5. Testing without a user present
+## 5. Testing without a seat at the machine
 
-- Live-session env for anything run from an agent shell:
+- Live-session env for anything run from a non-graphical shell (SSH, tmux, cron):
   ```
   WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 \
   DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
