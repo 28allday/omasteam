@@ -1,0 +1,230 @@
+#!/bin/bash
+# omasteam-clipboard — clipboard history panel for SteamOS + KDE.
+#
+# Opened from the bar's clipboard chip. Same pure-userland approach as the other
+# bar surfaces — stock Qt6 + org.kde.layershell via qmlscene — and the same
+# launcher/backend split: the QML pushes an action to a SQLite outbox (table
+# `clip_outbox`) which this script polls while the panel is up.
+#
+# ---- why there is a "helper" -------------------------------------------------
+# The history itself is Plasma's. plasmashell records the clipboard the whole
+# time and keeps that history across applet loads — but it only publishes the
+# `org.kde.klipper` D-Bus interface WHILE the Plasma clipboard applet is loaded,
+# and omasteam deliberately has no Plasma panel for it to live in. So a
+# `plasmawindowed org.kde.plasma.clipboard` helper is kept running purely to keep
+# that interface up; a KWin rule (installed by install.sh) force-minimises it and
+# hides it from the taskbar/switcher/pager, so it costs a process and nothing on
+# screen. `--helper` starts it and exits, which is what the autostart entry runs.
+#
+# NB the KWin rule must match wmclass `org.kde.plasmawindowed` — on Wayland KWin
+# matches the app id, and the bare `plasmawindowed` an X11 habit suggests matches
+# nothing at all.
+#
+# Launching again while the panel is up closes it (bar-chip toggle).
+set -uo pipefail
+
+export PATH="$HOME/.local/bin:$PATH"
+
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+KLIP_SVC=org.kde.klipper
+KLIP_PATH=/klipper
+MAX_ITEMS=24          # plenty for a panel; each item costs one qdbus6 round trip
+
+MODE=""
+case "${1:-}" in
+  --helper) MODE=helper ;;
+  --run)    MODE=run; RUN_CMD="${2:-}" ;;
+esac
+
+klipper_up() { qdbus6 "$KLIP_SVC" "$KLIP_PATH" getClipboardContents >/dev/null 2>&1; }
+
+ensure_helper() {
+  klipper_up && return 0
+  command -v plasmawindowed >/dev/null 2>&1 || return 1
+  # Detached: this must outlive the panel, and outlive this script.
+  setsid plasmawindowed org.kde.plasma.clipboard >/dev/null 2>&1 &
+  local i
+  for i in $(seq 1 40); do
+    klipper_up && return 0
+    sleep 0.2
+  done
+  return 1
+}
+
+if [ "$MODE" = helper ]; then
+  ensure_helper && echo "omasteam-clipboard: klipper interface up" \
+                || { echo "omasteam-clipboard: could not start the clipboard helper" >&2; exit 1; }
+  exit 0
+fi
+
+QML=""
+for cand in \
+  "$HERE/../artifacts/bar/omasteam-clipboard.qml" \
+  "$HOME/.local/share/omasteam/bar/omasteam-clipboard.qml"; do
+  [ -f "$cand" ] && { QML="$cand"; break; }
+done
+[ -n "$QML" ] || [ "$MODE" = run ] || { echo "omasteam-clipboard: cannot find omasteam-clipboard.qml" >&2; exit 1; }
+
+QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
+[ -n "$QMLSCENE" ] || [ "$MODE" = run ] || { echo "omasteam-clipboard: qmlscene not found" >&2; exit 1; }
+command -v jq >/dev/null || { echo "omasteam-clipboard: jq not found" >&2; exit 1; }
+
+BAR_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar/state.json"
+CL_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-clipboard"
+mkdir -p "$CL_DIR"
+RENDERED="$CL_DIR/omasteam-clipboard.rendered.qml"
+CL_STATE="$CL_DIR/clip-state.json"
+
+# ---- single-instance toggle (PID file — see omasteam-volume for why) --------
+PIDFILE="$CL_DIR/panel.pid"
+if [ -z "$MODE" ]; then
+  oldpid="$(cat "$PIDFILE" 2>/dev/null || true)"
+  if [ -n "$oldpid" ] && grep -aq "omasteam-clipboard.rendered.qml" "/proc/$oldpid/cmdline" 2>/dev/null; then
+    kill "$oldpid" 2>/dev/null
+    rm -f "$PIDFILE"
+    exit 0
+  fi
+  rm -f "$PIDFILE"
+fi
+
+# ---- close any other omasteam overlay ---------------------------------------
+CLOSER="$HERE/omasteam-surface-close"
+[ -x "$CLOSER" ] || CLOSER="$(command -v omasteam-surface-close || true)"
+[ -n "$CLOSER" ] && [ -z "$MODE" ] && "$CLOSER" clipboard
+
+# ---- state -> clip-state.json ------------------------------------------------
+# Items are read one at a time. getClipboardHistoryMenu() would be a single call,
+# but it FLATTENS newlines for menu display, so a multi-line entry is
+# indistinguishable from several entries — useless for both the count and the
+# text. One round trip each (~20ms) is the price of getting the content right.
+_last_top=""
+regen_state() {
+  local tmp i txt
+  local -a texts=() idxs=()
+  tmp=$(mktemp "$CL_STATE.XXXXXX") || return
+  for ((i = 0; i < MAX_ITEMS; i++)); do
+    txt="$(qdbus6 "$KLIP_SVC" "$KLIP_PATH" getClipboardHistoryItem "$i" 2>/dev/null)"
+    # An empty answer means EITHER "no entry at this index" OR a non-text entry:
+    # Klipper stores images too and returns "" for them. So skip, never break —
+    # one screenshot sitting at the top of the history would otherwise hide every
+    # text entry underneath it, which is exactly how this was found.
+    [ -n "$txt" ] || continue
+    texts+=("$txt"); idxs+=("$i")
+  done
+  if [ "${#texts[@]}" -gt 0 ]; then
+    # Each entry is passed as its OWN argument via --args, so no separator has to
+    # be chosen at all — clipboard text can contain any byte, newlines included,
+    # and a NUL-delimited jq program is awkward to keep intact through tooling.
+    #
+    # `i` carries the REAL Klipper index, not the array position: skipping image
+    # entries makes those two diverge, and `pick:` is resolved against Klipper.
+    jq -n --argjson idxs "[$(IFS=,; echo "${idxs[*]}")]" \
+      '{count: ($ARGS.positional | length),
+        items: [range(0; $ARGS.positional | length)
+                | {i: $idxs[.], text: $ARGS.positional[.]}]}' \
+      --args "${texts[@]}" > "$tmp" 2>/dev/null
+  else
+    jq -n '{count: 0, items: []}' > "$tmp" 2>/dev/null
+  fi
+  [ -s "$tmp" ] && mv -f "$tmp" "$CL_STATE" || rm -f "$tmp"
+}
+
+# Cheap change check: one call for the current contents, and only pay for the
+# full re-read when the top of the history actually moved.
+regen_if_changed() {
+  local top
+  top="$(qdbus6 "$KLIP_SVC" "$KLIP_PATH" getClipboardContents 2>/dev/null)"
+  [ "$top" = "$_last_top" ] && return
+  _last_top="$top"
+  regen_state
+}
+
+# ---- render self-contained temp QML (values via ENVIRON — see omasteam-menu)
+render() {
+  QML_STATE="$BAR_STATE" QML_CLSTATE="$CL_STATE" awk '
+    function subst(line, ph, v,    out, p) {
+      out = ""
+      p = index(line, ph)
+      while (p > 0) {
+        out = out substr(line, 1, p - 1) v
+        line = substr(line, p + length(ph))
+        p = index(line, ph)
+      }
+      return out line
+    }
+    { line = $0
+      line = subst(line, "@@STATE@@",   ENVIRON["QML_STATE"])
+      line = subst(line, "@@CLSTATE@@", ENVIRON["QML_CLSTATE"])
+      print line
+    }' "$QML" > "$RENDERED"
+}
+
+# ---- SQLite outbox (table `clip_outbox`) ------------------------------------
+drain_outbox() { # $1 = 1 to emit, 0 to purge silently
+  command -v sqlite3 >/dev/null || return
+  local db c emit="$1"
+  while IFS= read -r db; do
+    [ -f "$db" ] || continue
+    sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='clip_outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
+    if [ "$emit" = 1 ]; then
+      while IFS= read -r c; do [ -n "$c" ] && printf '%s\n' "$c"; done \
+        < <(sqlite3 "$db" "SELECT cmd FROM clip_outbox ORDER BY id;" 2>/dev/null)
+    fi
+    sqlite3 "$db" "DELETE FROM clip_outbox;" 2>/dev/null
+  done < <(find "$HOME/.local/share/QtProject" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+}
+
+run_clip_cmd() {
+  local cmd="$1" idx txt
+  case "$cmd" in
+    pick:*)
+      idx="${cmd#pick:}"
+      case "$idx" in ''|*[!0-9]*) return ;; esac
+      # Read the item back and make it current. Klipper exposes no
+      # "select history entry i", so read-then-set is the only route.
+      txt="$(qdbus6 "$KLIP_SVC" "$KLIP_PATH" getClipboardHistoryItem "$idx" 2>/dev/null)"
+      [ -n "$txt" ] || return
+      qdbus6 "$KLIP_SVC" "$KLIP_PATH" setClipboardContents "$txt" >/dev/null 2>&1
+      _last_top=""; regen_state ;;
+    clear)
+      qdbus6 "$KLIP_SVC" "$KLIP_PATH" clearClipboardHistory >/dev/null 2>&1
+      _last_top=""; regen_state ;;
+    "") : ;;
+    *)  echo "omasteam-clipboard: unknown action '$cmd'" >&2 ;;
+  esac
+}
+
+# `--run <verb>`: dispatch and stop, no panel.
+if [ "$MODE" = run ]; then
+  ensure_helper || exit 1
+  run_clip_cmd "${RUN_CMD:-}"
+  exit 0
+fi
+
+# ---- run --------------------------------------------------------------------
+# Without the interface there is no history to show — say so rather than opening
+# an empty panel that looks like "you have never copied anything".
+ensure_helper || { echo "omasteam-clipboard: klipper interface unavailable" >&2; exit 1; }
+
+regen_state
+render
+
+drain_outbox 0
+QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}" \
+QT_WAYLAND_SHELL_INTEGRATION=layer-shell \
+QML_XHR_ALLOW_FILE_READ=1 \
+  "$QMLSCENE" "$RENDERED" >/dev/null 2>&1 &
+QPID=$!
+echo "$QPID" > "$PIDFILE"
+
+tick=0
+while kill -0 "$QPID" 2>/dev/null; do
+  while IFS= read -r c; do run_clip_cmd "$c"; done < <(drain_outbox 1)
+  tick=$((tick + 1))
+  # ~1s: pick up anything copied while the panel is open, cheaply.
+  [ $((tick % 4)) -eq 0 ] && regen_if_changed
+  sleep 0.25
+done
+rm -f "$PIDFILE"
+while IFS= read -r c; do run_clip_cmd "$c"; done < <(drain_outbox 1)

@@ -84,7 +84,7 @@ browser). They tile automatically. `Meta+arrows` moves focus, `Meta+Shift+arrows
 moves the window, `Meta+Shift+V` floats one.
 
 **Tap the chips** in the top-right of the bar — volume, network, bluetooth, CPU,
-display, night light, power. Each opens its own panel.
+clipboard, display, night light, power. Each opens its own panel.
 
 Two things that surprise people, both by design:
 
@@ -162,6 +162,9 @@ compositor-specific shell framework), no compiling, no `sudo`.
     installer now removes — see below
   - **CPU load** → system monitor: CPU / GPU / RAM / swap / disk meters
     (with temperatures) + the three hungriest processes, live
+  - **clipboard** → history from Plasma's own clipboard; tap an entry to make it
+    current, `1`-`9` to pick one by number, and Clear (armed) to wipe the lot.
+    Multi-line entries collapse to one row and say how many lines they hold
   - **display** → resolution / scale / rotation, applied on approval with an
     automatic revert if you don't confirm
   - **night light** → panel on tap; **long-press toggles the tint** on/off

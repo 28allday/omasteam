@@ -233,7 +233,7 @@ install_krohnkite() {
   # Merge our rule ids into the existing rule index instead of clobbering it.
   local rules
   rules="$(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null || true)"
-  for id in omasteam-kcm omasteam-syset omasteam-applet; do
+  for id in omasteam-kcm omasteam-syset omasteam-applet omasteam-cliphelper; do
     case ",$rules," in *",$id,"*) ;; *) rules="${rules:+$rules,}$id" ;; esac
   done
   kwr General rules "$rules"
@@ -248,8 +248,26 @@ install_krohnkite() {
   kwr omasteam-syset wmclasscomplete false; kwr omasteam-syset types 1
   kwr omasteam-applet Description "omasteam: plasmawindowed applets (volume/wifi) open panel-sized"
   kwr omasteam-applet size "480,640"; kwr omasteam-applet sizerule 3
-  kwr omasteam-applet wmclass plasmawindowed; kwr omasteam-applet wmclassmatch 1
+  # wmclass is `org.kde.plasmawindowed`, NOT `plasmawindowed`. On Wayland KWin
+  # matches the app id; the bare name is an X11 WM_CLASS habit and matches
+  # nothing, which is why this rule silently did nothing until 2026-08-03.
+  # Verified with a KWin script dumping resourceClass for live windows.
+  kwr omasteam-applet wmclass "org.kde.plasmawindowed"; kwr omasteam-applet wmclassmatch 1
   kwr omasteam-applet wmclasscomplete false; kwr omasteam-applet types 1
+  # The hidden clipboard helper. plasmashell only publishes the org.kde.klipper
+  # D-Bus interface while the Plasma clipboard applet is loaded, and omasteam has
+  # no Plasma panel to load it in — so one plasmawindowed instance is kept alive
+  # purely for that interface, and this rule keeps it off the screen entirely.
+  # Matched on title so it never catches the volume/network applet fallbacks,
+  # which are the same wmclass and DO need to be visible.
+  kwr omasteam-cliphelper Description "omasteam: hidden clipboard helper (keeps org.kde.klipper alive)"
+  kwr omasteam-cliphelper wmclass "org.kde.plasmawindowed"; kwr omasteam-cliphelper wmclassmatch 1
+  kwr omasteam-cliphelper wmclasscomplete false; kwr omasteam-cliphelper types 1
+  kwr omasteam-cliphelper title "Clipboard";   kwr omasteam-cliphelper titlematch 1
+  kwr omasteam-cliphelper minimize true;       kwr omasteam-cliphelper minimizerule 2
+  kwr omasteam-cliphelper skiptaskbar true;    kwr omasteam-cliphelper skiptaskbarrule 2
+  kwr omasteam-cliphelper skipswitcher true;   kwr omasteam-cliphelper skipswitcherrule 2
+  kwr omasteam-cliphelper skippager true;      kwr omasteam-cliphelper skippagerrule 2
   qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || true
   # A running Krohnkite only reads its config at script load, and a plain
   # reconfigure (or plugin-flag toggle) does NOT force a re-read — unload the
@@ -607,6 +625,25 @@ EOF
   # ---- power panel (Omarchy-quattro-style, from the bar's power chip) ----
   install -m644 "$ART/bar/omasteam-power.qml" "$share/omasteam-power.qml"
   install -m755 "$SCRIPT_DIR/bin/omasteam-power" "$HOME/.local/bin/omasteam-power"
+
+  # ---- clipboard panel (from the bar's clipboard chip) ----
+  install -m644 "$ART/bar/omasteam-clipboard.qml" "$share/omasteam-clipboard.qml"
+  install -m755 "$SCRIPT_DIR/bin/omasteam-clipboard" "$HOME/.local/bin/omasteam-clipboard"
+  # The helper that keeps org.kde.klipper alive (hidden by the omasteam-cliphelper
+  # KWin rule above). Phase 2 so it starts after KWin has the rule loaded —
+  # otherwise the very first launch flashes an un-hidden Clipboard window.
+  mkdir -p ~/.config/autostart
+  cat > ~/.config/autostart/omasteam-clipboard-helper.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=omasteam clipboard helper
+Comment=Keeps Plasma's clipboard history reachable without a Plasma panel
+Exec=$HOME/.local/bin/omasteam-clipboard --helper
+Terminal=false
+X-KDE-autostart-phase=2
+NoDisplay=true
+StartupNotify=false
+EOF
 
   # ---- steam panel (from the bar's Steam chip) ----
   install -m644 "$ART/bar/omasteam-steam.qml" "$share/omasteam-steam.qml"

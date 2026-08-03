@@ -60,6 +60,8 @@ Window {
     // fa-desktop. Deliberately not the microchip above — that one is already the
     // system monitor, and two screen-ish glyphs side by side read as one control.
     readonly property string icoDisplay: String.fromCodePoint(0xF108)
+    // fa-clipboard. FA4 block again — see the icoNight note above.
+    readonly property string icoClip: String.fromCodePoint(0xF0EA)
 
     function batIcon(pct) {
         if (pct >= 88) return ""
@@ -199,6 +201,14 @@ Window {
                 label: sys.cpu + "%"
                 glyphColor: sys.cpu >= 85 ? "#f7768e" : win.cFg
                 onClicked: win.sendCmd("mon-panel")
+            }
+
+            // clipboard history. Plasma records it either way; this chip is the
+            // only way back to it once the Plasma panel (and its applet) is gone.
+            Chip {
+                glyph: win.icoClip
+                glyphColor: win.cFg
+                onClicked: win.sendCmd("clip-panel")
             }
 
             // display configuration — resolution / scale / rotation. Tap toggles

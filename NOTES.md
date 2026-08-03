@@ -120,6 +120,7 @@ The surfaces:
 | volume / network / bluetooth / monitor / power | bar chips | quattro-style cards, top-right |
 | display / nightlight | bar chips **and** menu leaves | Re-added to the bar 2026-08-03 on request; still in the menu too |
 | steam | bar Steam chip | Game Mode *or* desktop client. Replaces the two `~/Desktop` icons install.sh now removes |
+| clipboard | bar clipboard chip | Plasma's history, reached via a hidden `plasmawindowed` helper — see §3 |
 
 The bar daemon (`bin/omasteam-bar-daemon`) polls the system every tick and
 writes `~/.local/state/omasteam-bar/state.json`; every surface reads that file
@@ -237,6 +238,32 @@ brightness/display controls; ours is a system monitor.
   command line into a fatal mid-sweep (that bug shipped for one test cycle and
   made `stop` quietly give up, leaving the bar running), and (b) never relax the
   positional check back to a substring match.
+- **⚠️ KWin rules match the Wayland app id, NOT the X11 `WM_CLASS`.** `wmclass` for
+  a plasmawindowed applet is **`org.kde.plasmawindowed`**; the bare
+  `plasmawindowed` an X11 habit suggests matches nothing, silently. The
+  `omasteam-applet` sizing rule was dead from the day it was written for exactly
+  this reason (fixed 2026-08-03). To find a real class, load a KWin script that
+  prints `w.resourceClass` for `workspace.windowList()` and read it back from
+  `journalctl --user`; there is no simpler introspection that does not require
+  clicking the window.
+- **Plasma's clipboard history needs a live applet to be reachable.** plasmashell
+  records the clipboard continuously and keeps that history across applet loads,
+  but only publishes `org.kde.klipper` **while the Plasma clipboard applet is
+  loaded** — and omasteam has no Plasma panel to hold one. So a
+  `plasmawindowed org.kde.plasma.clipboard` helper is autostarted purely to keep
+  the interface up, and the `omasteam-cliphelper` KWin rule force-minimises it and
+  hides it from taskbar/switcher/pager. The rule matches on **title `Clipboard`**
+  so it cannot catch the volume/network applet fallbacks, which share the class
+  and must stay visible.
+- **Klipper's history is not a list of strings.** Two traps, both hit while
+  building the panel: `getClipboardHistoryItem(i)` returns **`""` for a non-text
+  entry** (it stores images too), so a loop that `break`s on empty stops dead at
+  the first screenshot and reports an empty history — skip and continue instead.
+  And `getClipboardHistoryMenu()` over D-Bus does **not** flatten newlines, so its
+  line count is not an entry count and cannot be used to size the list. Read
+  per-index, and carry the **real Klipper index** through to the UI: once empties
+  are skipped, array position and Klipper index diverge, and selection is resolved
+  against Klipper.
 - **`$$` is the MAIN shell's pid inside a background subshell.** Two concurrent
   regens using `"$FILE.$$"` collide (seen as `mv: cannot stat` noise). Use
   `mktemp "$FILE.XXXXXX"`.
