@@ -68,11 +68,143 @@ hwmon_by_name() { # $1..$n = acceptable `name` values, first match wins
 }
 # k10temp = AMD (the Deck's APU and this box); the rest are the usual fallbacks.
 CPU_TEMP_FILE="$(hwmon_by_name k10temp zenpower coretemp acpitz)"
-GPU_TEMP_FILE="$(hwmon_by_name amdgpu radeon i915)"
-GPU_BUSY_FILE=""
-for f in /sys/class/drm/card*/device/gpu_busy_percent; do
-  [ -r "$f" ] && { GPU_BUSY_FILE="$f"; break; }
-done
+# ---- GPU backend (detected once, vendor-agnostic) ---------------------------
+# This used to be `hwmon_by_name amdgpu radeon i915` plus the FIRST readable
+# /sys/class/drm/card*/device/gpu_busy_percent. That is correct for exactly one
+# shape of machine — a single AMD APU, i.e. an actual Deck. On anything with two
+# GPUs it silently reports the wrong one: `gpu_busy_percent` is an amdgpu/xe
+# attribute that NVIDIA never exposes, so on an NVIDIA-discrete + AMD-iGPU box
+# the meter tracked the idle integrated chip while the discrete card did the work.
+#
+# GPU_KIND: nvidia (nvidia-smi) | sysfs (amdgpu/radeon/xe/i915) | "" (none found)
+# Auto-pick prefers a discrete GPU. Override with
+#   OMASTEAM_GPU=nvidia | amd | intel | card0 | card1 ...
+GPU_KIND=""; GPU_BUSY_FILE=""; GPU_TEMP_FILE=""; GPU_VENDOR=""; GPU_MODEL=""
+
+drm_drv() { basename "$(readlink -f "/sys/class/drm/$1/device/driver" 2>/dev/null)" 2>/dev/null; }
+
+# Temp from THIS card's own hwmon, not a global name lookup — on a two-GPU box a
+# global lookup happily pairs one card's load with the other card's temperature.
+card_temp_file() {
+  local h
+  for h in "/sys/class/drm/$1/device/hwmon"/hwmon*/temp1_input; do
+    [ -r "$h" ] && { printf '%s\n' "$h"; return; }
+  done
+}
+
+vendor_of() {
+  case "$1" in
+    amdgpu|radeon) echo AMD ;;
+    i915|xe)       echo Intel ;;
+    nvidia|nouveau) echo NVIDIA ;;
+    *)             echo "${1:-GPU}" ;;
+  esac
+}
+
+# One lspci at startup for a human-readable name; absent lspci just means no label.
+model_of_card() {
+  local slot
+  command -v lspci >/dev/null 2>&1 || return
+  slot="$(basename "$(readlink -f "/sys/class/drm/$1/device" 2>/dev/null)" 2>/dev/null)"
+  [ -n "$slot" ] || return
+  lspci -s "${slot#0000:}" 2>/dev/null | sed 's/^[^ ]* //; s/^[^:]*: //; s/ (rev .*)$//' | head -1
+}
+
+pick_sysfs_gpu() { # $1 = driver filter ("" = any non-NVIDIA) -> cardN
+  local card drv vram best="" bestv=-1 fallback=""
+  for card in /sys/class/drm/card[0-9]*; do
+    card="$(basename "$card")"
+    case "$card" in *-*) continue ;; esac        # skip connectors (card0-HDMI-A-1)
+    drv="$(drm_drv "$card")"; [ -n "$drv" ] || continue
+    case "$drv" in nvidia|nouveau) continue ;; esac   # no busy% in sysfs, ever
+    [ -n "${1:-}" ] && [ "$drv" != "$1" ] && continue
+    # Keep the first match even without a busy file: Intel exposes no
+    # gpu_busy_percent, and a temperature alone still beats an empty meter.
+    [ -z "$fallback" ] && fallback="$card"
+    [ -r "/sys/class/drm/$card/device/gpu_busy_percent" ] || continue
+    vram="$(cat "/sys/class/drm/$card/device/mem_info_vram_total" 2>/dev/null)"
+    case "${vram:-}" in ''|*[!0-9]*) vram=0 ;; esac
+    # Largest VRAM wins — on a box with both, that is the discrete card.
+    [ "$vram" -gt "$bestv" ] && { bestv="$vram"; best="$card"; }
+  done
+  printf '%s\n' "${best:-$fallback}"
+}
+
+use_sysfs_card() {
+  local card="$1" drv
+  [ -n "$card" ] || return 1
+  [ -d "/sys/class/drm/$card/device" ] || return 1   # a name that isn't a card
+  drv="$(drm_drv "$card")"
+  [ -n "$drv" ] || return 1                          # bound to no driver
+  # Refuse NVIDIA here. It publishes neither busy% nor a DRM hwmon, so a "sysfs
+  # NVIDIA" would report no load and then borrow some OTHER card's temperature.
+  # Returning 1 lets an explicitly named NVIDIA card fall through to nvidia-smi.
+  case "$drv" in nvidia|nouveau) return 1 ;; esac
+  GPU_KIND=sysfs
+  GPU_VENDOR="$(vendor_of "$drv")"
+  GPU_MODEL="$(model_of_card "$card")"
+  [ -r "/sys/class/drm/$card/device/gpu_busy_percent" ] \
+    && GPU_BUSY_FILE="/sys/class/drm/$card/device/gpu_busy_percent"
+  GPU_TEMP_FILE="$(card_temp_file "$card")"
+  # Only ever fall back to a hwmon of the SAME driver. The old code fell back to
+  # `amdgpu radeon i915` whatever the card was, which is how one GPU's load ended
+  # up paired with another GPU's temperature in the first place.
+  [ -n "$GPU_TEMP_FILE" ] || GPU_TEMP_FILE="$(hwmon_by_name "$drv")"
+  return 0
+}
+
+detect_gpu() {
+  local want="${OMASTEAM_GPU:-auto}" card
+  # An unrecognised override must behave like `auto`, not silently drop through
+  # to the sysfs branch and pick a different GPU than auto would have.
+  case "$want" in nvidia|amd|intel|auto|card[0-9]*) ;; *) want=auto ;; esac
+  case "$want" in
+    card[0-9]*) use_sysfs_card "$want" && return
+                # use_sysfs_card refuses NVIDIA, so landing here means the named
+                # card is NVIDIA (or does not exist) — try nvidia-smi for it.
+                want=nvidia ;;
+  esac
+
+  if [ "$want" = nvidia ] || [ "$want" = auto ]; then
+    if command -v nvidia-smi >/dev/null 2>&1 \
+       && nvidia-smi --query-gpu=name --format=csv,noheader >/dev/null 2>&1; then
+      GPU_KIND=nvidia; GPU_VENDOR=NVIDIA
+      GPU_MODEL="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
+      return
+    fi
+    [ "$want" = nvidia ] && return          # asked for it explicitly, none there
+  fi
+
+  case "$want" in
+    amd)   use_sysfs_card "$(pick_sysfs_gpu amdgpu)" || use_sysfs_card "$(pick_sysfs_gpu radeon)" ;;
+    intel) use_sysfs_card "$(pick_sysfs_gpu i915)"   || use_sysfs_card "$(pick_sysfs_gpu xe)" ;;
+    *)     use_sysfs_card "$(pick_sysfs_gpu)" ;;
+  esac
+  return 0
+}
+detect_gpu
+
+gpu_sample() { # -> "<pct|null> <temp|null>", whichever the chosen backend can answer
+  local pct=null temp=null out
+  case "$GPU_KIND" in
+    nvidia)
+      # ~20ms, and this panel only runs while it is open. NVIDIA publishes no
+      # busy counter in sysfs at all, so there is no cheaper source.
+      out="$(nvidia-smi --query-gpu=utilization.gpu,temperature.gpu \
+               --format=csv,noheader,nounits 2>/dev/null | head -1)"
+      pct="${out%%,*}"; temp="${out##*,}"
+      pct="${pct//[[:space:]]/}"; temp="${temp//[[:space:]]/}"
+      case "${pct:-}"  in ''|*[!0-9]*)  pct=null ;;  esac
+      case "${temp:-}" in ''|*[!0-9-]*) temp=null ;; esac ;;
+    sysfs)
+      if [ -n "$GPU_BUSY_FILE" ]; then
+        pct="$(cat "$GPU_BUSY_FILE" 2>/dev/null)"
+        case "${pct:-}" in ''|*[!0-9]*) pct=null ;; esac
+      fi
+      temp="$(read_temp "$GPU_TEMP_FILE")" ;;
+  esac
+  printf '%s %s\n' "$pct" "$temp"
+}
 
 read_temp() { # millidegrees -> whole degrees, or "null"
   local v
@@ -128,12 +260,7 @@ regen_state() {
 
   cpu="$(cpu_pct)"
   ctemp="$(read_temp "$CPU_TEMP_FILE")"
-  gtemp="$(read_temp "$GPU_TEMP_FILE")"
-  gbusy=null
-  if [ -n "$GPU_BUSY_FILE" ]; then
-    gbusy="$(cat "$GPU_BUSY_FILE" 2>/dev/null)"
-    case "${gbusy:-}" in ''|*[!0-9]*) gbusy=null ;; esac
-  fi
+  read -r gbusy gtemp <<<"$(gpu_sample)"
 
   memtotal=0; memavail=0; swaptotal=0; swapfree=0
   while read -r key val _; do
@@ -157,13 +284,14 @@ regen_state() {
   top_procs | jq -R -s \
       --argjson cpu "$cpu" --argjson ctemp "$ctemp" \
       --argjson gbusy "$gbusy" --argjson gtemp "$gtemp" \
+      --arg gvendor "$GPU_VENDOR" --arg gmodel "$GPU_MODEL" \
       --argjson memtotal "$((memtotal * 1024))" --argjson memused "$(( (memtotal - memavail) * 1024 ))" \
       --argjson swaptotal "$((swaptotal * 1024))" --argjson swapused "$(( (swaptotal - swapfree) * 1024 ))" \
       --argjson dused "${dused:-0}" --argjson dsize "${dsize:-0}" --arg dmount "${dmount:-/}" \
       --arg model "$CPU_MODEL" --argjson threads "${CPU_THREADS:-0}" \
       --arg load "$load" --arg up "$up" \
     '{ cpu:  { pct: $cpu, temp: $ctemp, model: $model, threads: $threads, load: $load },
-       gpu:  { pct: $gbusy, temp: $gtemp },
+       gpu:  { pct: $gbusy, temp: $gtemp, vendor: $gvendor, model: $gmodel },
        mem:  { used: $memused, total: $memtotal },
        swap: { used: $swapused, total: $swaptotal },
        disk: { used: $dused, total: $dsize, mount: $dmount },

@@ -395,6 +395,26 @@ not a Deck: no battery (`/sys/class/power_supply` empty), no backlight, no
 `powerprofilesctl`/`platform_profile`. So the battery chip, brightness row and
 power-profile controls are all untested and some are hidden by design.
 
+Fuller picture (2026-08-03): SteamOS on a **Ryzen 9 7945HX**, 30 GiB, single HDMI
+at **2259x1271 @1.7** — not 1280x800, so the bar-width worries in the QML comments
+do not bite here. **Two GPUs**: `card0` NVIDIA RTX 5060 Ti (discrete),
+`card1` AMD Raphael iGPU. `steamosctl get-default-login-mode` returns `game`, so
+"Game Mode" takes the logout branch.
+
+**Do not reason about Deck hardware when working on this repo** — brightness needs
+DDC/CI on an external monitor, not `/sys/class/backlight`, and anything
+battery/TDP-shaped has nothing to run against.
+
+**GPU stats must stay vendor-agnostic.** `gpu_busy_percent` is an amdgpu/xe
+attribute NVIDIA never exposes, and a global `hwmon_by_name amdgpu radeon i915`
+lookup will happily pair one card's load with another card's temperature. That
+combination made the monitor panel track the **idle iGPU** while the RTX did the
+work. `bin/omasteam-monitor` now detects a backend once (`nvidia-smi` for NVIDIA,
+per-card sysfs otherwise), prefers the largest-VRAM card as the discrete one,
+reads temperature from **that card's own** hwmon, and publishes
+`gpu.vendor`/`gpu.model` so the panel can say which chip it is showing.
+`OMASTEAM_GPU=nvidia|amd|intel|cardN` overrides the pick.
+
 ### Recently decided (don't re-litigate)
 - **One menu for everything.** The separate `Meta+Space` app launcher was folded
   into the system menu as an "Applications" level; `Meta+Space` is unbound. An

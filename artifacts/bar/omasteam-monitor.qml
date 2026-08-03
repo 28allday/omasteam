@@ -214,9 +214,13 @@ Window {
                         ? "" : win.mon.cpu.temp + "°C"
                 }
                 Meter {
-                    label: "GPU"
-                    // No amdgpu/i915 busy file (VMs, some iGPUs): show the meter
-                    // empty with an em dash rather than a confident 0%.
+                    // Name the vendor: on a two-GPU box "GPU 0%" is ambiguous,
+                    // and knowing WHICH chip is being reported is the whole point
+                    // of the vendor-agnostic backend behind it.
+                    label: "GPU" + (win.mon.gpu.vendor ? "  " + win.mon.gpu.vendor : "")
+                    // No busy counter (NVIDIA without nvidia-smi, Intel, VMs):
+                    // show the meter empty with an em dash rather than a
+                    // confident 0%.
                     known: win.mon.gpu.pct !== null && win.mon.gpu.pct !== undefined
                     pct: known ? win.mon.gpu.pct : 0
                     detail: win.mon.gpu.temp === null || win.mon.gpu.temp === undefined
