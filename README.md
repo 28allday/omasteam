@@ -154,8 +154,12 @@ compositor-specific shell framework), no compiling, no `sudo`.
 - **Left:** the system menu (`Meta+Alt+Space`) + KWin virtual desktops
   (active = accent; click to switch)
 - **Center:** live clock
-- **Right:** **Return to Gaming Mode**, then one chip per subsystem — each
-  opens its own panel:
+- **Right:** the **Steam** chip, then one chip per subsystem — each opens its
+  own panel:
+  - **Steam** → **Game Mode** or the **desktop Steam client**. Game Mode needs a
+    confirming second tap (it ends the desktop session); the desktop client
+    fires immediately. This chip replaces the two `~/Desktop` icons the
+    installer now removes — see below
   - **CPU load** → system monitor: CPU / GPU / RAM / swap / disk meters
     (with temperatures) + the three hungriest processes, live
   - **display** → resolution / scale / rotation, applied on approval with an
@@ -175,6 +179,14 @@ compositor-specific shell framework), no compiling, no `sudo`.
 
 The display and night-light panels are also still reachable from the system menu,
 which is where they lived while the bar had no chips for them.
+
+**The installer removes two `~/Desktop` icons** — SteamOS's `Return to Gaming
+Mode` and the `Steam` symlink — because the Steam chip now offers both, and the
+desktop underneath tiled windows is the one place you can't reach them. It only
+removes them if they are the stock entries (the Return launcher matched on its
+`Exec`, and `steam.desktop` only when it is still a symlink); your own launchers
+at those paths are left alone. Steam itself is untouched — it stays in the menu
+and stays the `steam://` handler.
 
 ```bash
 omasteam-bar            # start (also autostarts at login)

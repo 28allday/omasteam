@@ -174,13 +174,16 @@ Window {
             anchors { right: parent.right; rightMargin: 8; verticalCenter: parent.verticalCenter }
             spacing: 4
 
-            // Return to Gaming Mode — the Deck essential. Kept in the bar so it
-            // survives even if the Plasma panel is hidden.
+            // Steam — the Deck essential. Kept in the bar so it survives even if
+            // the Plasma panel is hidden. Opens a panel offering Game Mode or the
+            // desktop client: this chip replaces BOTH removed desktop icons
+            // (Return.desktop and steam.desktop), so it can't be a one-way door
+            // to Game Mode the way it was.
             Chip {
                 glyph: win.icoGaming
                 glyphColor: win.cAccent
                 hoverGlyphColor: win.cFg
-                onClicked: win.sendCmd("return-to-gaming")
+                onClicked: win.sendCmd("steam-panel")
             }
 
             // separator

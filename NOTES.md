@@ -119,6 +119,7 @@ The surfaces:
 | menu | `Meta+Alt+Space`, bar `☰` | **One menu for everything** — apps + all settings |
 | volume / network / bluetooth / monitor / power | bar chips | quattro-style cards, top-right |
 | display / nightlight | bar chips **and** menu leaves | Re-added to the bar 2026-08-03 on request; still in the menu too |
+| steam | bar Steam chip | Game Mode *or* desktop client. Replaces the two `~/Desktop` icons install.sh now removes |
 
 The bar daemon (`bin/omasteam-bar-daemon`) polls the system every tick and
 writes `~/.local/state/omasteam-bar/state.json`; every surface reads that file
@@ -407,6 +408,18 @@ power-profile controls are all untested and some are hidden by design.
   ever proposed, weigh it against that history rather than adding it by reflex.
   The night light chip earns its width by doubling as a **long-press toggle**,
   which is a thing the menu leaf cannot do.
+- **The Steam chip is a panel, not a one-way door (2026-08-03).** It used to fire
+  `return-to-gaming` on tap, so the ONLY route to the desktop Steam client was the
+  `~/Desktop/steam.desktop` icon — unreachable under tiled windows. It now opens
+  `omasteam-steam`: Game Mode (armed, second tap confirms — it ends the session)
+  or the desktop client (fires immediately). `return-to-gaming` is kept in the
+  daemon as the no-panel fallback and for stale outbox rows.
+
+  install.sh removes the two icons this replaces, but **only when they are the
+  stock ones**: `Return.desktop` matched on its `switch-to-game-mode` Exec, and
+  `steam.desktop` only while it is still a symlink. A real file at either path is
+  someone's own launcher. Removing the symlink does not touch Steam — the system
+  entry stays, so it's still in the menu and still the `steam://` handler.
 - **The kcm long tail stays kcmshell6.** ~43 settings modules deliberately still
   open KDE's own module rather than being reimplemented — converting them all
   means rebuilding System Settings. Only holdouts with a real omasteam panel were

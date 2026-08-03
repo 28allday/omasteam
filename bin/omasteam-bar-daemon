@@ -285,10 +285,19 @@ run_cmd() {
               if command -v omasteam-power >/dev/null; then omasteam-power 2>/dev/null &
               else qdbus6 org.kde.LogoutPrompt /LogoutPrompt promptLogout 2>/dev/null \
                 || qdbus6 org.kde.ksmserver /KSMServer logout 1 0 3 2>/dev/null & fi ;;
+    steam-panel)
+              # Tap on the Steam chip: toggle the omasteam Steam panel, which
+              # offers Game Mode *or* the desktop client. It single-instances
+              # itself, so a second tap closes it.
+              if command -v omasteam-steam >/dev/null; then omasteam-steam 2>/dev/null &
+              else run_cmd return-to-gaming; fi ;;
     return-to-gaming)
-              # Mirror ~/Desktop/Return.desktop: switch straight to Game Mode
-              # when this Deck logs into desktop by default, else log out (which
-              # drops back to Game Mode on a Deck that boots to gaming).
+              # The chip's old behaviour, kept as the no-panel fallback and for
+              # stale outbox rows written by a bar from before the panel existed
+              # (same reasoning as `apps` above). Mirrors ~/Desktop/Return.desktop:
+              # switch straight to Game Mode when this Deck logs into desktop by
+              # default, else log out (which drops back to Game Mode on a Deck
+              # that boots to gaming).
               if [ "$(steamosctl get-default-login-mode 2>/dev/null)" = desktop ]; then
                 steamosctl switch-to-game-mode 2>/dev/null &
               else

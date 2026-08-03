@@ -608,6 +608,29 @@ EOF
   install -m644 "$ART/bar/omasteam-power.qml" "$share/omasteam-power.qml"
   install -m755 "$SCRIPT_DIR/bin/omasteam-power" "$HOME/.local/bin/omasteam-power"
 
+  # ---- steam panel (from the bar's Steam chip) ----
+  install -m644 "$ART/bar/omasteam-steam.qml" "$share/omasteam-steam.qml"
+  install -m755 "$SCRIPT_DIR/bin/omasteam-steam" "$HOME/.local/bin/omasteam-steam"
+
+  # ---- retire the two desktop icons the Steam chip replaces ----
+  # SteamOS ships ~/Desktop/Return.desktop ("Return to Gaming Mode") and a
+  # ~/Desktop/steam.desktop symlink to the desktop client. The bar's Steam chip
+  # now offers BOTH destinations, so the icons are redundant — and the desktop
+  # they sit on is usually covered by tiled windows anyway.
+  #
+  # Only ever removed if they are what we think they are: the stock Return entry
+  # (matched on its Exec) and a SYMLINK to the system steam.desktop. A real file
+  # at either path is someone's own launcher and is left alone. Removing the
+  # symlink does not touch Steam itself — /usr/share/applications/steam.desktop
+  # stays, so Steam is still in the menu and still the steam:// handler.
+  if [ -f "$HOME/Desktop/Return.desktop" ] \
+     && grep -q 'switch-to-game-mode' "$HOME/Desktop/Return.desktop" 2>/dev/null; then
+    rm -f "$HOME/Desktop/Return.desktop" && ok "removed ~/Desktop/Return.desktop (now the bar's Steam chip)"
+  fi
+  if [ -L "$HOME/Desktop/steam.desktop" ]; then
+    rm -f "$HOME/Desktop/steam.desktop" && ok "removed ~/Desktop/steam.desktop (now the bar's Steam chip)"
+  fi
+
   # ---- retire the standalone app launcher (upgrades from <= 2026-07-25) ----
   # The .desktop app list moved INTO the system menu ("Applications", plus the
   # top-level search that reaches every leaf), so there is one menu for

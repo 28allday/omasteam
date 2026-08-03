@@ -1,0 +1,176 @@
+#!/bin/bash
+# omasteam-steam — Steam launcher panel for SteamOS + KDE.
+#
+# Opened from the bar's Steam chip. That chip used to switch straight to Game
+# Mode, which made it a one-way door: the only way to reach the DESKTOP Steam
+# client was the ~/Desktop/steam.desktop icon. This panel replaces both desktop
+# icons (Return.desktop and steam.desktop), which install.sh now removes, by
+# offering the two destinations side by side.
+#
+# Same pure-userland approach as the other bar surfaces — stock Qt6 + org.kde.
+# layershell via qmlscene — and the same launcher/backend split: the QML pushes
+# an action to a SQLite outbox (table `steam_outbox`) which this script polls
+# while the panel is up, then runs it.
+#
+# Launching again while the panel is up closes it (bar-chip toggle).
+set -uo pipefail
+
+export PATH="$HOME/.local/bin:$PATH"
+
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+# `omasteam-steam --run <verb>` runs one verb and exits with no panel, so the
+# system menu (and anything else) has a single implementation to call.
+RUN_VERB=""
+if [ "${1:-}" = "--run" ]; then
+  RUN_VERB="${2:-}"
+  [ -n "$RUN_VERB" ] || { echo "omasteam-steam: --run needs a verb" >&2; exit 2; }
+fi
+
+QML=""
+for cand in \
+  "$HERE/../artifacts/bar/omasteam-steam.qml" \
+  "$HOME/.local/share/omasteam/bar/omasteam-steam.qml"; do
+  [ -f "$cand" ] && { QML="$cand"; break; }
+done
+[ -n "$QML" ] || [ -n "$RUN_VERB" ] || { echo "omasteam-steam: cannot find omasteam-steam.qml" >&2; exit 1; }
+
+QMLSCENE="$(command -v qmlscene6 || command -v qmlscene)"
+[ -n "$QMLSCENE" ] || [ -n "$RUN_VERB" ] || { echo "omasteam-steam: qmlscene not found" >&2; exit 1; }
+
+BAR_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-bar/state.json"
+ST_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omasteam-steam"
+mkdir -p "$ST_DIR"
+RENDERED="$ST_DIR/omasteam-steam.rendered.qml"
+ST_STATE="$ST_DIR/steam-state.json"
+
+# ---- single-instance toggle (PID file — see omasteam-volume for why) --------
+PIDFILE="$ST_DIR/panel.pid"
+if [ -z "$RUN_VERB" ]; then
+  oldpid="$(cat "$PIDFILE" 2>/dev/null || true)"
+  if [ -n "$oldpid" ] && grep -aq "omasteam-steam.rendered.qml" "/proc/$oldpid/cmdline" 2>/dev/null; then
+    kill "$oldpid" 2>/dev/null
+    rm -f "$PIDFILE"
+    exit 0
+  fi
+  rm -f "$PIDFILE"
+fi
+
+# ---- close any other omasteam overlay ---------------------------------------
+CLOSER="$HERE/omasteam-surface-close"
+[ -x "$CLOSER" ] || CLOSER="$(command -v omasteam-surface-close || true)"
+[ -n "$CLOSER" ] && [ -z "$RUN_VERB" ] && "$CLOSER" steam
+
+# ---- state -> steam-state.json ----------------------------------------------
+regen_state() {
+  local tmp gaming running
+  tmp=$(mktemp "$ST_STATE.XXXXXX") || return
+  # gaming=true when Game Mode is a direct switch; on a Deck that boots to
+  # gaming it is a logout instead (same rule as the bar daemon and omasteam-power).
+  gaming=false
+  [ "$(steamosctl get-default-login-mode 2>/dev/null)" = desktop ] && gaming=true
+  # `pgrep -x` matches the executable name exactly, NOT the whole command line —
+  # the -f form would match this very script and any shell that mentions steam
+  # (NOTES.md §3). Never loosen this to -f.
+  running=false
+  pgrep -x steam >/dev/null 2>&1 && running=true
+  jq -n --argjson gaming "$gaming" --argjson running "$running" \
+    '{gaming: $gaming, running: $running}' \
+    > "$tmp" && mv -f "$tmp" "$ST_STATE" || rm -f "$tmp"
+}
+
+# ---- render self-contained temp QML (values via ENVIRON — see omasteam-menu)
+render() {
+  QML_STATE="$BAR_STATE" QML_STSTATE="$ST_STATE" awk '
+    function subst(line, ph, v,    out, p) {
+      out = ""
+      p = index(line, ph)
+      while (p > 0) {
+        out = out substr(line, 1, p - 1) v
+        line = substr(line, p + length(ph))
+        p = index(line, ph)
+      }
+      return out line
+    }
+    { line = $0
+      line = subst(line, "@@STATE@@",   ENVIRON["QML_STATE"])
+      line = subst(line, "@@STSTATE@@", ENVIRON["QML_STSTATE"])
+      print line
+    }' "$QML" > "$RENDERED"
+}
+
+# ---- SQLite outbox (table `steam_outbox`) -----------------------------------
+drain_outbox() { # $1 = 1 to emit, 0 to purge silently
+  command -v sqlite3 >/dev/null || return
+  local db c emit="$1"
+  while IFS= read -r db; do
+    [ -f "$db" ] || continue
+    sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='steam_outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
+    if [ "$emit" = 1 ]; then
+      while IFS= read -r c; do [ -n "$c" ] && printf '%s\n' "$c"; done \
+        < <(sqlite3 "$db" "SELECT cmd FROM steam_outbox ORDER BY id;" 2>/dev/null)
+    fi
+    sqlite3 "$db" "DELETE FROM steam_outbox;" 2>/dev/null
+  done < <(find "$HOME/.local/share/QtProject" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+}
+
+detached() { # run a shell snippet in its OWN session, off this script's tree
+  # Game Mode tears down the session this script lives in, and the panel is
+  # still unmapping when the verb lands — a plain child would be up for SIGHUP
+  # mid-call. `setsid bash -c` (NOT `setsid -f cmd`, which returns success
+  # immediately and would make every `||` fallback dead code) gives the request
+  # its own session while keeping the fallback chain intact.
+  setsid bash -c "$1" >/dev/null 2>&1 &
+}
+
+run_steam_cmd() {
+  case "$1" in
+    gaming)
+      # Same rule as the bar daemon's return-to-gaming and omasteam-power's
+      # `gaming` verb: switch straight to Game Mode when this Deck logs into
+      # desktop by default, else log out (which drops back to Game Mode on a
+      # Deck that boots to gaming).
+      if [ "$(steamosctl get-default-login-mode 2>/dev/null)" = desktop ]; then
+        detached 'steamosctl switch-to-game-mode'
+      else
+        detached 'qdbus6 org.kde.Shutdown /Shutdown org.kde.Shutdown.logout || qdbus6 org.kde.ksmserver /KSMServer logout 0 0 0'
+      fi ;;
+    desktop)
+      # The desktop Steam client. Already running -> this just focuses it, which
+      # is what the removed ~/Desktop/steam.desktop icon did too.
+      detached 'steam || /usr/bin/steam || gio launch /usr/share/applications/steam.desktop' ;;
+    "") : ;;
+    *)  echo "omasteam-steam: unknown action '$1'" >&2 ;;
+  esac
+}
+
+# `--run <verb>`: dispatch and stop, no panel.
+if [ -n "$RUN_VERB" ]; then
+  run_steam_cmd "$RUN_VERB"
+  exit 0
+fi
+
+# ---- run --------------------------------------------------------------------
+regen_state                      # snapshot before first paint
+render
+
+drain_outbox 0                   # purge anything stale first
+QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}" \
+QT_WAYLAND_SHELL_INTEGRATION=layer-shell \
+QML_XHR_ALLOW_FILE_READ=1 \
+  "$QMLSCENE" "$RENDERED" >/dev/null 2>&1 &
+QPID=$!
+echo "$QPID" > "$PIDFILE"
+
+tick=0
+while kill -0 "$QPID" 2>/dev/null; do
+  while IFS= read -r c; do run_steam_cmd "$c"; done < <(drain_outbox 1)
+  tick=$((tick + 1))
+  # ~4s: catches the desktop client coming up while the panel is still open.
+  [ $((tick % 16)) -eq 0 ] && regen_state
+  sleep 0.25
+done
+rm -f "$PIDFILE"
+# The panel unmaps itself before the verb fires, so the action usually lands
+# here, after qmlscene has exited.
+while IFS= read -r c; do run_steam_cmd "$c"; done < <(drain_outbox 1)
