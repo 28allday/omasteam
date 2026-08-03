@@ -14,6 +14,11 @@ b(){ dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobal
        org.kde.KGlobalAccel.doRegister array:string:"$1","_launch","$2","$2" >/dev/null 2>&1
      dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
        org.kde.KGlobalAccel.setForeignShortcut array:string:"$1","_launch","$2","$2" array:int32:"$3" >/dev/null 2>&1; }
+# Krohnkite re-registers "Set master" on Meta+Return at each login; it's a kwin-component
+# action so it beats the kitty.desktop launcher and leaves _launch= empty. Free it first.
+dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
+  org.kde.KGlobalAccel.setForeignShortcut \
+  array:string:"kwin","KrohnkiteSetMaster","KWin","Krohnkite: Set master" array:int32: >/dev/null 2>&1
 b kitty.desktop                   "Launch kitty"   285212676   # Super+Return
 b omarchy-btop.desktop            "btop"           268435540   # Super+T
 b omarchy-nvim.desktop            "Neovim"         268435534   # Super+N

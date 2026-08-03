@@ -354,6 +354,10 @@ EOF
     setsc "plasmashell" "activate task manager entry $n" "plasmashell" "Activate Task Manager Entry $n" ""
   done
   setsc "org_kde_powerdevil" "powerProfile" "Power Management" "Switch Power Profile" ""   # frees Meta+B
+  # Krohnkite ships Meta+Return on "Set master". It's a kwin-component action the daemon has
+  # already registered at this point, so it WINS the conflict and the kitty.desktop launcher
+  # below silently lands as an empty _launch=. Free it first.
+  setsc "kwin" "KrohnkiteSetMaster" "KWin" "Krohnkite: Set master" ""                      # frees Meta+Return
 
   # Free KWin defaults that collide (quick-tile Meta+arrows, tiles editor Meta+T)
   setsc "kwin" "Window Quick Tile Left"   "KWin" "Quick Tile Window to the Left"   ""
