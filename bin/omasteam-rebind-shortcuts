@@ -19,6 +19,19 @@ b(){ dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobal
 dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
   org.kde.KGlobalAccel.setForeignShortcut \
   array:string:"kwin","KrohnkiteSetMaster","KWin","Krohnkite: Set master" array:int32: >/dev/null 2>&1
+# Re-assert the Krohnkite resize binds. install.sh already sets these through the
+# daemon, but they race its settings sync: on this Deck's install three of the four
+# landed and KrohnkiteShrinkHeight came out empty, with nothing else holding
+# Meta+Ctrl+J — a lost write, not a conflict. They're cheap to re-state, and doing
+# it here means a bind lost that way heals itself at the next login instead of
+# needing a hand-run dbus call.
+k(){ dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
+       org.kde.KGlobalAccel.setForeignShortcut \
+       array:string:"kwin","$1","KWin","$2" array:int32:"$3" >/dev/null 2>&1; }
+k KrohnkiteShrinkWidth  "Krohnkite: Shrink Width"  335544392   # Meta+Ctrl+H
+k KrohnkitegrowWidth    "Krohnkite: Grow Width"    335544396   # Meta+Ctrl+L
+k KrohnkiteShrinkHeight "Krohnkite: Shrink Height" 335544394   # Meta+Ctrl+J
+k KrohnkiteGrowHeight   "Krohnkite: Grow Height"   335544395   # Meta+Ctrl+K
 b kitty.desktop                   "Launch kitty"   285212676   # Super+Return
 b omarchy-btop.desktop            "btop"           268435540   # Super+T
 b omarchy-nvim.desktop            "Neovim"         268435534   # Super+N
