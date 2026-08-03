@@ -475,8 +475,25 @@ reads temperature from **that card's own** hwmon, and publishes
 ### Open threads / ideas floated but not started
 - Weather in the bar centre (real quattro has it; needs a location + outbound fetch).
 - Rounded workspace pills, bar transparency.
-- A real SNI **system tray** — hard in plain QML, and it's the reason removing the
-  Plasma panel loses the tray entirely.
+- ~~A real SNI **system tray** — hard in plain QML, and it's the reason removing the
+  Plasma panel loses the tray entirely.~~ **Declined 2026-08-03** — asked for and
+  turned down; not wanted. Investigated first, so the findings are kept here
+  rather than re-derived by whoever asks next:
+  - The pieces are all present on this box: `org.kde.StatusNotifierWatcher` is up
+    (owned by plasmashell), `IsStatusNotifierHostRegistered` is true, and Steam
+    registers `:<n>/org/ayatana/NotificationItem/steam`. Properties read fine
+    (`Id`, `Title`, `Status`, `IconName=steam_tray_mono`), and that name resolves
+    to `/usr/share/pixmaps/steam_tray_mono.png` — a real file QML can load.
+  - **"Hard in plain QML" was really "DBusMenu's `(ia{sv}av)` is hard to parse out
+    of `dbus-send`".** `busctl --user --json=short call … GetLayout` returns it as
+    clean JSON that jq walks directly, which removes that objection entirely. If
+    this is ever revisited, start there.
+  - **A tray cannot be icons-only.** Steam's item exposes NO `Activate` (only
+    `Scroll`/`SecondaryActivate`) — it is an Ayatana item where the menu *is* the
+    interaction. Rendering DBusMenu is required for v1, not a follow-up.
+  - Untested: `com.canonical.dbusmenu.Event()` dispatch (every entry in Steam's
+    menu launches a game or opens Steam), multi-item layout (only one item exists
+    here), and the raw-`IconPixmap` fallback for apps that publish no icon name.
 - Tailscale / Dropbox panels (quattro has them) — only if those are installed.
 - ~~`bin/omasteam-bar` still uses `pkill -f`; convert to the PID-file pattern if it
   ever bites in normal use.~~ **Done 2026-08-03** — see §3.
