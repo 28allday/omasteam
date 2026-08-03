@@ -138,7 +138,22 @@ run_steam_cmd() {
     desktop)
       # The desktop Steam client. Already running -> this just focuses it, which
       # is what the removed ~/Desktop/steam.desktop icon did too.
-      detached 'steam || /usr/bin/steam || gio launch /usr/share/applications/steam.desktop' ;;
+      #
+      # Pick the launcher BEFORE running it. `steam || /usr/bin/steam || gio ...`
+      # reads like the fallback chains elsewhere in this project, but those wrap
+      # D-Bus calls that return immediately. Steam holds the foreground for the
+      # whole session, so `||` there is a RELAUNCH loop, not a fallback: when the
+      # user quits and Steam exits non-zero, the next branch starts it right back
+      # up. Resolve first, run once.
+      if command -v steam >/dev/null 2>&1; then
+        detached 'exec steam'
+      elif [ -x /usr/bin/steam ]; then
+        detached 'exec /usr/bin/steam'
+      elif command -v gio >/dev/null 2>&1; then
+        detached 'exec gio launch /usr/share/applications/steam.desktop'
+      else
+        echo "omasteam-steam: no desktop Steam client found" >&2
+      fi ;;
     "") : ;;
     *)  echo "omasteam-steam: unknown action '$1'" >&2 ;;
   esac

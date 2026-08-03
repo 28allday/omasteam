@@ -14,20 +14,47 @@ b(){ dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobal
        org.kde.KGlobalAccel.doRegister array:string:"$1","_launch","$2","$2" >/dev/null 2>&1
      dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
        org.kde.KGlobalAccel.setForeignShortcut array:string:"$1","_launch","$2","$2" array:int32:"$3" >/dev/null 2>&1; }
+# Without kreadconfig6 there is no way to tell a bind lost to the install race from
+# one the user chose, so every conditional write below stands down rather than guess
+# and clobber. Ships with KDE, so this is a belt-and-braces guard.
+have_kread() { command -v kreadconfig6 >/dev/null 2>&1; }
+
+# The ACTIVE shortcut for a kwin action, "" when unset. The stored value is
+# "ACTIVE,DEFAULT,Friendly Name", and an unset bind reads back as the literal
+# "none". Everything below is CONDITIONAL on this: it runs on every login, so
+# anything it writes unconditionally would silently revert a key the user
+# deliberately rebound, every time they log in.
+cur_bind() {
+  local v; v="$(kreadconfig6 --file kglobalshortcutsrc --group kwin --key "$1" 2>/dev/null)"
+  v="${v%%,*}"
+  [ "$v" = none ] && v=""
+  printf '%s' "$v"
+}
+
 # Krohnkite re-registers "Set master" on Meta+Return at each login; it's a kwin-component
-# action so it beats the kitty.desktop launcher and leaves _launch= empty. Free it first.
-dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
-  org.kde.KGlobalAccel.setForeignShortcut \
-  array:string:"kwin","KrohnkiteSetMaster","KWin","Krohnkite: Set master" array:int32: >/dev/null 2>&1
+# action so it beats the kitty.desktop launcher and leaves _launch= empty. Free it —
+# but ONLY while it actually holds Meta+Return. Clearing it unconditionally would wipe
+# a Set-master key the user chose for themselves (Meta+Shift+Return is the obvious
+# pick once Meta+Return is spoken for) on every login.
+if have_kread && [ "$(cur_bind KrohnkiteSetMaster)" = "Meta+Return" ]; then
+  dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
+    org.kde.KGlobalAccel.setForeignShortcut \
+    array:string:"kwin","KrohnkiteSetMaster","KWin","Krohnkite: Set master" array:int32: >/dev/null 2>&1
+fi
 # Re-assert the Krohnkite resize binds. install.sh already sets these through the
 # daemon, but they race its settings sync: on this Deck's install three of the four
 # landed and KrohnkiteShrinkHeight came out empty, with nothing else holding
-# Meta+Ctrl+J — a lost write, not a conflict. They're cheap to re-state, and doing
-# it here means a bind lost that way heals itself at the next login instead of
-# needing a hand-run dbus call.
-k(){ dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
-       org.kde.KGlobalAccel.setForeignShortcut \
-       array:string:"kwin","$1","KWin","$2" array:int32:"$3" >/dev/null 2>&1; }
+# Meta+Ctrl+J — a lost write, not a conflict. Restating them here means a bind lost
+# that way heals itself at the next login instead of needing a hand-run dbus call.
+#
+# FILL-IF-EMPTY, never overwrite: this runs at every login, so unconditionally
+# writing the default would revert these keys for anyone who rebound them.
+k(){
+  have_kread || return 0
+  [ -n "$(cur_bind "$1")" ] && return 0
+  dbus-send --session --type=method_call --dest=org.kde.kglobalaccel /kglobalaccel \
+    org.kde.KGlobalAccel.setForeignShortcut \
+    array:string:"kwin","$1","KWin","$2" array:int32:"$3" >/dev/null 2>&1; }
 k KrohnkiteShrinkWidth  "Krohnkite: Shrink Width"  335544392   # Meta+Ctrl+H
 k KrohnkitegrowWidth    "Krohnkite: Grow Width"    335544396   # Meta+Ctrl+L
 k KrohnkiteShrinkHeight "Krohnkite: Shrink Height" 335544394   # Meta+Ctrl+J
