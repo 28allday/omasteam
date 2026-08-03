@@ -57,6 +57,9 @@ Window {
     // moon is absent here and would render as an empty box, same trap as the
     // menu's old Appearance glyph.
     readonly property string icoNight: String.fromCodePoint(0xF186)
+    // fa-desktop. Deliberately not the microchip above — that one is already the
+    // system monitor, and two screen-ish glyphs side by side read as one control.
+    readonly property string icoDisplay: String.fromCodePoint(0xF108)
 
     function batIcon(pct) {
         if (pct >= 88) return ""
@@ -193,6 +196,17 @@ Window {
                 label: sys.cpu + "%"
                 glyphColor: sys.cpu >= 85 ? "#f7768e" : win.cFg
                 onClicked: win.sendCmd("mon-panel")
+            }
+
+            // display configuration — resolution / scale / rotation. Tap toggles
+            // the panel; it single-instances, so a second tap closes it. No
+            // long-press action: every geometry change in there is applied on
+            // approval with a revert timer, which is not something to put behind
+            // an accidental hold on a handheld.
+            Chip {
+                glyph: win.icoDisplay
+                glyphColor: win.cFg
+                onClicked: win.sendCmd("disp-panel")
             }
 
             // night light — tap toggles the panel (it single-instances, so a

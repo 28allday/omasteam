@@ -118,7 +118,7 @@ The surfaces:
 | bar | autostart | The only always-on surface. `omasteam-bar restart\|stop\|status` |
 | menu | `Meta+Alt+Space`, bar `☰` | **One menu for everything** — apps + all settings |
 | volume / network / bluetooth / monitor / power | bar chips | quattro-style cards, top-right |
-| display / nightlight | menu leaves | Settings panels; deliberately *not* bar chips (tried, reverted) |
+| display / nightlight | bar chips **and** menu leaves | Re-added to the bar 2026-08-03 on request; still in the menu too |
 
 The bar daemon (`bin/omasteam-bar-daemon`) polls the system every tick and
 writes `~/.local/state/omasteam-bar/state.json`; every surface reads that file
@@ -383,9 +383,14 @@ power-profile controls are all untested and some are hidden by design.
   into the system menu as an "Applications" level; `Meta+Space` is unbound. An
   earlier session had *split* them, so the code history reads both ways — the
   merge is the current intent.
-- **No display / night light chips on the bar.** They were built, worked, and were
-  reverted (`3ca76bb` then `cb720dd`) — the user preferred the bar without them.
-  The panels stay reachable from the menu. Don't re-add them unprompted.
+- ~~**No display / night light chips on the bar.**~~ **Reversed 2026-08-03, on an
+  explicit request for both.** The original chips were built, worked, and were
+  reverted (`3ca76bb` then `cb720dd`) because the bar read as cluttered; that
+  preference no longer holds, so they are back. The panels stay reachable from
+  the menu as well. The clutter objection was real, though — if a third chip is
+  ever proposed, weigh it against that history rather than adding it by reflex.
+  The night light chip earns its width by doubling as a **long-press toggle**,
+  which is a thing the menu leaf cannot do.
 - **The kcm long tail stays kcmshell6.** ~43 settings modules deliberately still
   open KDE's own module rather than being reimplemented — converting them all
   means rebuilding System Settings. Only holdouts with a real omasteam panel were

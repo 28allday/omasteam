@@ -235,6 +235,12 @@ run_cmd() {
               if command -v omasteam-monitor >/dev/null; then omasteam-monitor 2>/dev/null &
               elif command -v plasma-systemmonitor >/dev/null; then plasma-systemmonitor >/dev/null 2>&1 &
               fi ;;
+    disp-panel)
+              # Tap on the display chip: toggle the omasteam display panel (it
+              # single-instances itself, so a second tap closes it). Fall back to
+              # the stock KCM if it isn't installed.
+              if command -v omasteam-display >/dev/null; then omasteam-display 2>/dev/null &
+              else kcmshell6 kcm_kscreen >/dev/null 2>&1 & fi ;;
     nl-panel)
               # Tap on the night light chip: toggle the omasteam night light
               # panel (it single-instances itself, so a second tap closes it).

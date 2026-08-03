@@ -84,7 +84,7 @@ browser). They tile automatically. `Meta+arrows` moves focus, `Meta+Shift+arrows
 moves the window, `Meta+Shift+V` floats one.
 
 **Tap the chips** in the top-right of the bar — volume, network, bluetooth, CPU,
-power. Each opens its own panel.
+display, night light, power. Each opens its own panel.
 
 Two things that surprise people, both by design:
 
@@ -158,6 +158,11 @@ compositor-specific shell framework), no compiling, no `sudo`.
   opens its own panel:
   - **CPU load** → system monitor: CPU / GPU / RAM / swap / disk meters
     (with temperatures) + the three hungriest processes, live
+  - **display** → resolution / scale / rotation, applied on approval with an
+    automatic revert if you don't confirm
+  - **night light** → panel on tap; **long-press toggles the tint** on/off
+    without opening anything. Amber when on, dimmed when off; hides itself
+    entirely if KWin reports night light unavailable
   - **bluetooth** → power toggle, device list with tap-to-connect/pair
   - **network** → Wi-Fi toggle, network list with tap-to-connect + inline
     password entry
@@ -168,9 +173,8 @@ compositor-specific shell framework), no compiling, no `sudo`.
     shut down (the last four need a confirming second tap)
 - **Theme-synced:** re-colors from the active omasteam theme's `colors.toml`
 
-Display and night-light panels exist too, but deliberately have **no bar chip** —
-they're reachable from the system menu. They were built, worked, and were reverted
-from the bar because it read as cluttered.
+The display and night-light panels are also still reachable from the system menu,
+which is where they lived while the bar had no chips for them.
 
 ```bash
 omasteam-bar            # start (also autostarts at login)
