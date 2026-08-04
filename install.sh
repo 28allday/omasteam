@@ -629,16 +629,25 @@ EOF
   # ---- clipboard panel (from the bar's clipboard chip) ----
   install -m644 "$ART/bar/omasteam-clipboard.qml" "$share/omasteam-clipboard.qml"
   install -m755 "$SCRIPT_DIR/bin/omasteam-clipboard" "$HOME/.local/bin/omasteam-clipboard"
+  # Root-cause fix: org.kde.plasma.clipboard on Wayland can busy-loop when
+  # primary-selection sync fights with a copy source (observed pegging a
+  # headless plasmawindowed instance at ~200% CPU indefinitely). Disabling
+  # the sync removes the feedback loop; middle-click paste still uses X11
+  # primary selection normally, it just won't mirror into klipper's history.
+  kwriteconfig6 --file klipperrc --group General --key SyncClipboardAndSelection false
   # The helper that keeps org.kde.klipper alive (hidden by the omasteam-cliphelper
   # KWin rule above). Phase 2 so it starts after KWin has the rule loaded —
   # otherwise the very first launch flashes an un-hidden Clipboard window.
+  # Belt-and-suspenders: run it in its own systemd scope with a CPU cap, so
+  # if the sync fix above ever fails to prevent the loop, it starves itself
+  # instead of the whole session (kwin_wayland, the bar, everything else).
   mkdir -p ~/.config/autostart
   cat > ~/.config/autostart/omasteam-clipboard-helper.desktop <<EOF
 [Desktop Entry]
 Type=Application
 Name=omasteam clipboard helper
 Comment=Keeps Plasma's clipboard history reachable without a Plasma panel
-Exec=$HOME/.local/bin/omasteam-clipboard --helper
+Exec=systemd-run --user --scope --slice=omasteam.slice -p CPUQuota=15% --collect --quiet -- $HOME/.local/bin/omasteam-clipboard --helper
 Terminal=false
 X-KDE-autostart-phase=2
 NoDisplay=true
