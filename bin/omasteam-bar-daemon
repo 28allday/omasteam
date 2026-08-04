@@ -327,24 +327,43 @@ run_cmd() {
 # holds the Steam library (tens of thousands of files) — crawling it once a
 # second is real CPU/battery on a handheld.
 OUTBOX_ROOT="$HOME/.local/share/QtProject"
-drain_outbox() {
-  command -v sqlite3 >/dev/null || return
-  local db rowid c last
+OUTBOX_CACHE="$STATE_DIR/outbox.dbpath"
+OUTBOX_DB=""
+
+# Which of the handful of *.sqlite files QML LocalStorage creates under
+# QtProject actually holds the bar's `outbox` table. Used to be re-discovered
+# with a fresh `find` + a table-exists probe against every file on EVERY
+# drain — fine at 1/s, wasteful at 10/s forever. The path is stable for the
+# life of the install (same app/db name -> same MD5-hashed filename), so
+# resolve it once, cache it to disk (a future daemon start skips discovery
+# entirely), and only re-resolve if the cached file has gone missing.
+resolve_outbox_db() {
+  local cached db
+  cached="$(cat "$OUTBOX_CACHE" 2>/dev/null || true)"
+  if [ -n "$cached" ] && [ -f "$cached" ]; then OUTBOX_DB="$cached"; return 0; fi
   while IFS= read -r db; do
     [ -f "$db" ] || continue
     sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
-    last=""
-    while IFS='|' read -r rowid c; do
-      [ -n "$c" ] && run_cmd "$c"
-      last="$rowid"
-    done < <(sqlite3 -cmd '.timeout 200' "$db" "SELECT id, cmd FROM outbox ORDER BY id;" 2>/dev/null)
-    # Delete only the rows we actually ran: a blanket DELETE dropped any click
-    # inserted between the SELECT and it, and if the DELETE lost a lock race
-    # with the bar, every command replayed next tick ('power' replays are very
-    # user-visible). The .timeout keeps a briefly-locked DB from failing either
-    # statement outright.
-    [ -n "$last" ] && sqlite3 -cmd '.timeout 200' "$db" "DELETE FROM outbox WHERE id <= $last;" 2>/dev/null
+    OUTBOX_DB="$db"; printf '%s' "$db" > "$OUTBOX_CACHE"; return 0
   done < <(find "$OUTBOX_ROOT" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+  OUTBOX_DB=""; return 1
+}
+
+drain_outbox() {
+  command -v sqlite3 >/dev/null || return
+  local rowid c last
+  { [ -n "$OUTBOX_DB" ] && [ -f "$OUTBOX_DB" ]; } || resolve_outbox_db || return
+  last=""
+  while IFS='|' read -r rowid c; do
+    [ -n "$c" ] && run_cmd "$c"
+    last="$rowid"
+  done < <(sqlite3 -cmd '.timeout 200' "$OUTBOX_DB" "SELECT id, cmd FROM outbox ORDER BY id;" 2>/dev/null)
+  # Delete only the rows we actually ran: a blanket DELETE dropped any click
+  # inserted between the SELECT and it, and if the DELETE lost a lock race
+  # with the bar, every command replayed next tick ('power' replays are very
+  # user-visible). The .timeout keeps a briefly-locked DB from failing either
+  # statement outright.
+  [ -n "$last" ] && sqlite3 -cmd '.timeout 200' "$OUTBOX_DB" "DELETE FROM outbox WHERE id <= $last;" 2>/dev/null
 }
 
 # Discard (don't run) anything left in the outbox — clicks queued before this
@@ -372,9 +391,17 @@ purge_outbox
 # Sweep temp snapshots orphaned by a write_state killed between mktemp and mv
 # (the -mmin guard leaves any concurrently-in-flight write alone).
 find "$STATE_DIR" -maxdepth 1 -name 'state.json.*' -mmin +1 -delete 2>/dev/null
-echo "omasteam-bar-daemon: writing $STATE (tick 1s)" >&2
+echo "omasteam-bar-daemon: writing $STATE (tick 1s, outbox 100ms)" >&2
+# write_state shells out to wpctl/nmcli/bluetoothctl/qdbus6 and only needs to
+# run once a second, but drain_outbox is what turns a chip tap into a launched
+# panel — tying it to the same 1s sleep meant every tap waited up to a full
+# second (average ~500ms) before the daemon even noticed the click. Drain on a
+# fast sub-loop instead so a tap is picked up within ~100ms; write_state still
+# runs on its original 1s cadence.
 while true; do
   write_state
-  drain_outbox
-  sleep 1
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    drain_outbox
+    sleep 0.1
+  done
 done
