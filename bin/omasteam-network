@@ -153,18 +153,32 @@ render() {
 }
 
 # ---- SQLite outbox (table `net_outbox`) ------------------------------------
-drain_outbox() { # $1 = 1 to emit, 0 to purge silently
-  command -v sqlite3 >/dev/null || return
-  local db c emit="$1"
+OUTBOX_CACHE="$NET_DIR/outbox.dbpath"
+OUTBOX_DB=""
+# Cache which QtProject LocalStorage db holds `net_outbox` instead of
+# re-`find`ing + probing every *.sqlite on every 250ms poll while the panel is
+# open — the path is stable for the life of the install. See omasteam-bar-daemon
+# for the full rationale.
+resolve_outbox_db() {
+  local cached db
+  cached="$(cat "$OUTBOX_CACHE" 2>/dev/null || true)"
+  if [ -n "$cached" ] && [ -f "$cached" ]; then OUTBOX_DB="$cached"; return 0; fi
   while IFS= read -r db; do
     [ -f "$db" ] || continue
     sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='net_outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
-    if [ "$emit" = 1 ]; then
-      while IFS= read -r c; do [ -n "$c" ] && printf '%s\n' "$c"; done \
-        < <(sqlite3 "$db" "SELECT cmd FROM net_outbox ORDER BY id;" 2>/dev/null)
-    fi
-    sqlite3 "$db" "DELETE FROM net_outbox;" 2>/dev/null
+    OUTBOX_DB="$db"; printf '%s' "$db" > "$OUTBOX_CACHE"; return 0
   done < <(find "$HOME/.local/share/QtProject" -path '*QML/OfflineStorage/Databases/*.sqlite' 2>/dev/null)
+  OUTBOX_DB=""; return 1
+}
+drain_outbox() { # $1 = 1 to emit, 0 to purge silently
+  command -v sqlite3 >/dev/null || return
+  local c emit="$1"
+  { [ -n "$OUTBOX_DB" ] && [ -f "$OUTBOX_DB" ]; } || resolve_outbox_db || return
+  if [ "$emit" = 1 ]; then
+    while IFS= read -r c; do [ -n "$c" ] && printf '%s\n' "$c"; done \
+      < <(sqlite3 "$OUTBOX_DB" "SELECT cmd FROM net_outbox ORDER BY id;" 2>/dev/null)
+  fi
+  sqlite3 "$OUTBOX_DB" "DELETE FROM net_outbox;" 2>/dev/null
 }
 
 run_net_cmd() {
