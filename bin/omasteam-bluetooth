@@ -127,7 +127,13 @@ OUTBOX_DB=""
 resolve_outbox_db() {
   local cached db
   cached="$(cat "$OUTBOX_CACHE" 2>/dev/null || true)"
-  if [ -n "$cached" ] && [ -f "$cached" ]; then OUTBOX_DB="$cached"; return 0; fi
+  # Trust the cache only if that file still holds our table: a repo update
+  # that renames the QML db leaves the old file in place, and draining it
+  # would eat taps silently forever. One sqlite3 probe, once per process.
+  if [ -n "$cached" ] && [ -f "$cached" ] &&
+     sqlite3 "$cached" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='bt_outbox' LIMIT 1;" 2>/dev/null | grep -q 1; then
+    OUTBOX_DB="$cached"; return 0
+  fi
   while IFS= read -r db; do
     [ -f "$db" ] || continue
     sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='bt_outbox' LIMIT 1;" 2>/dev/null | grep -q 1 || continue
